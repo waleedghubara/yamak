@@ -1,0 +1,57 @@
+{
+  "cli": {
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "customer-dev": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "APP_VARIANT": "customer"
+      }
+    },
+    "captain-dev": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "APP_VARIANT": "captain"
+      }
+    },
+    "customer-preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "APP_VARIANT": "customer"
+      },
+      "autoIncrement": true
+    },
+    "captain-preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "APP_VARIANT": "captain"
+      },
+      "autoIncrement": true
+    },
+    "customer-production": {
+      "autoIncrement": true,
+      "env": {
+        "APP_VARIANT": "customer"
+      }
+    },
+    "captain-production": {
+      "autoIncrement": true,
+      "env": {
+        "APP_VARIANT": "captain"
+      }
+    }
+  },
+  "submit": {
+    "customer-production": {},
+    "captain-production": {}
+  }
+}

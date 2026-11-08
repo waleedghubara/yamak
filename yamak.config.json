@@ -1,0 +1,6 @@
+{
+    "apiUrl":  "https://api.yamaktaxi.com",
+    "mapStyleUrl":  "https://tiles.openfreemap.org/styles/liberty",
+    "easProjectIdCustomer":  "4a976b7c-4354-4e16-8091-5a251fe31a59",
+    "easProjectIdCaptain":  "f358e7e2-8e3c-4ed4-9f62-ac6d0f431d32"
+}
