@@ -56,7 +56,7 @@ workflows:
     instance_type: mac_mini_m2
 
     integrations:
-      app_store_connect:  Codemagic Yamak
+      app_store_connect: YOUR_ACTUAL_INTEGRATION_NAME
 
     environment:
       node: 22
@@ -98,7 +98,7 @@ workflows:
       - /tmp/xcodebuild_logs/*.log
 
     publishing:
-      app_store_connect:  Codemagic Yamak
+      app_store_connect:
         auth: integration
         submit_to_testflight: true
 
@@ -108,7 +108,7 @@ workflows:
     instance_type: mac_mini_m2
 
     integrations:
-      app_store_connect: Yamak
+      app_store_connect: YOUR_ACTUAL_INTEGRATION_NAME
 
     environment:
       node: 22
