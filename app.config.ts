@@ -46,7 +46,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   icon: CAPTAIN ? './assets/icon-captain.png' : './assets/icon.png',
   userInterfaceStyle: 'light',
   ios: {
-    bundleIdentifier: CAPTAIN ? 'iq.yamak.captain' : 'iq.yamak.app',
+   bundleIdentifier:
+  process.env.IOS_BUNDLE_IDENTIFIER ||
+  (CAPTAIN ? 'com.waleedghubara.yamak.captain' : 'com.waleedghubara.yamak.customer'),
     supportsTablet: false,
     infoPlist: {
       ITSAppUsesNonExemptEncryption: false,
@@ -101,7 +103,14 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         microphonePermission: false,
       },
     ],
-    ['expo-notifications', { icon: './assets/notification-icon.png', color: BRAND }],
+    [
+  'expo-notifications',
+  {
+    icon: './assets/notification-icon.png',
+    color: BRAND,
+    enableRemoteNotifications: true,
+  },
+],
     '@maplibre/maplibre-react-native',
     ['expo-build-properties', { android: { usesCleartextTraffic: ALLOW_HTTP } }],
   ],
