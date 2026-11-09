@@ -1,14 +1,19 @@
 
 workflows:
+  # ==========================================
+  # YAMAK CUSTOMER - ANDROID
+  # ==========================================
   customer-android:
     name: Yamak Customer (Android APK & AAB)
     max_build_duration: 60
     instance_type: mac_mini_m2
+
     environment:
       node: 22
       java: 17
       vars:
         APP_VARIANT: "customer"
+
     scripts:
       - name: Install npm dependencies
         script: npm ci
@@ -25,15 +30,20 @@ workflows:
       - android/app/build/outputs/**/*.apk
       - android/app/build/outputs/**/*.aab
 
+  # ==========================================
+  # YAMAK CAPTAIN - ANDROID
+  # ==========================================
   captain-android:
     name: Yamak Captain (Android APK & AAB)
     max_build_duration: 60
     instance_type: mac_mini_m2
+
     environment:
       node: 22
       java: 17
       vars:
         APP_VARIANT: "captain"
+
     scripts:
       - name: Install npm dependencies
         script: npm ci
@@ -50,8 +60,11 @@ workflows:
       - android/app/build/outputs/**/*.apk
       - android/app/build/outputs/**/*.aab
 
+  # ==========================================
+  # YAMAK CUSTOMER - IOS
+  # ==========================================
   customer-ios:
-    name: Yamak Customer (iOS App Store & TestFlight)
+    name: Yamak Customer (iOS IPA)
     max_build_duration: 60
     instance_type: mac_mini_m2
 
@@ -62,9 +75,11 @@ workflows:
       node: 22
       xcode: latest
       cocoapods: default
+
       vars:
         APP_VARIANT: "customer"
-        BUNDLE_IDENTIFIER: "iq.yamak.app"
+        IOS_BUNDLE_IDENTIFIER: "com.waleedghubara.yamak.customer"
+        BUNDLE_IDENTIFIER: "com.waleedghubara.yamak.customer"
         XCODE_WORKSPACE: "ymktksy.xcworkspace"
         XCODE_SCHEME: "ymktksy"
 
@@ -75,19 +90,41 @@ workflows:
       - name: Expo Prebuild iOS
         script: npx expo prebuild --platform ios --clean
 
+      - name: Verify iOS Configuration
+        script: |
+          echo "Checking Customer iOS configuration..."
+
+          test -d "ios/$XCODE_WORKSPACE" || {
+            echo "ERROR: Workspace not found: ios/$XCODE_WORKSPACE"
+            find ios -maxdepth 2 -name "*.xcworkspace"
+            exit 1
+          }
+
+          xcodebuild -list \
+            -workspace "ios/$XCODE_WORKSPACE"
+
       - name: Install CocoaPods
         script: |
           cd ios
           pod install
 
-      - name: Set up code signing
-        script: |
-          keychain initialize
-          app-store-connect fetch-signing-files "$BUNDLE_IDENTIFIER" --type IOS_APP_STORE --create
-          keychain add-certificates
-          xcode-project use-profiles
+      - name: Initialize Keychain
+        script: keychain initialize
 
-      - name: Build iOS IPA
+      - name: Fetch Customer Signing Files
+        script: |
+          app-store-connect fetch-signing-files \
+            "$BUNDLE_IDENTIFIER" \
+            --type IOS_APP_STORE \
+            --create
+
+      - name: Install Signing Certificates
+        script: keychain add-certificates
+
+      - name: Configure Xcode Signing
+        script: xcode-project use-profiles
+
+      - name: Build Customer IPA
         script: |
           xcode-project build-ipa \
             --workspace "ios/$XCODE_WORKSPACE" \
@@ -97,26 +134,26 @@ workflows:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
 
-    publishing:
-      app_store_connect:
-        auth: integration
-        submit_to_testflight: true
-
+  # ==========================================
+  # YAMAK CAPTAIN - IOS
+  # ==========================================
   captain-ios:
-    name: Yamak Captain (iOS App Store & TestFlight)
+    name: Yamak Captain (iOS IPA)
     max_build_duration: 60
     instance_type: mac_mini_m2
 
     integrations:
-      app_store_connect: YOUR_ACTUAL_INTEGRATION_NAME
+      app_store_connect: App Apple
 
     environment:
       node: 22
       xcode: latest
       cocoapods: default
+
       vars:
         APP_VARIANT: "captain"
-        BUNDLE_IDENTIFIER: "iq.yamak.captain"
+        IOS_BUNDLE_IDENTIFIER: "com.waleedghubara.yamak.captain"
+        BUNDLE_IDENTIFIER: "com.waleedghubara.yamak.captain"
         XCODE_WORKSPACE: "ymkkbtn.xcworkspace"
         XCODE_SCHEME: "ymkkbtn"
 
@@ -127,19 +164,41 @@ workflows:
       - name: Expo Prebuild iOS
         script: npx expo prebuild --platform ios --clean
 
+      - name: Verify iOS Configuration
+        script: |
+          echo "Checking Captain iOS configuration..."
+
+          test -d "ios/$XCODE_WORKSPACE" || {
+            echo "ERROR: Workspace not found: ios/$XCODE_WORKSPACE"
+            find ios -maxdepth 2 -name "*.xcworkspace"
+            exit 1
+          }
+
+          xcodebuild -list \
+            -workspace "ios/$XCODE_WORKSPACE"
+
       - name: Install CocoaPods
         script: |
           cd ios
           pod install
 
-      - name: Set up code signing
-        script: |
-          keychain initialize
-          app-store-connect fetch-signing-files "$BUNDLE_IDENTIFIER" --type IOS_APP_STORE --create
-          keychain add-certificates
-          xcode-project use-profiles
+      - name: Initialize Keychain
+        script: keychain initialize
 
-      - name: Build iOS IPA
+      - name: Fetch Captain Signing Files
+        script: |
+          app-store-connect fetch-signing-files \
+            "$BUNDLE_IDENTIFIER" \
+            --type IOS_APP_STORE \
+            --create
+
+      - name: Install Signing Certificates
+        script: keychain add-certificates
+
+      - name: Configure Xcode Signing
+        script: xcode-project use-profiles
+
+      - name: Build Captain IPA
         script: |
           xcode-project build-ipa \
             --workspace "ios/$XCODE_WORKSPACE" \
@@ -148,8 +207,3 @@ workflows:
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
-
-    publishing:
-      app_store_connect:
-        auth: integration
-        submit_to_testflight: true
