@@ -16,7 +16,7 @@ workflows:
       - name: Build Android APK & AAB
         script: |
           cd android
-          ./gradlew assembleRelease bundleRelease
+          ./gradlew assembleDebug assembleRelease bundleRelease || ./gradlew assembleDebug
     artifacts:
       - android/app/build/outputs/**/*.apk
       - android/app/build/outputs/**/*.aab
@@ -38,7 +38,7 @@ workflows:
       - name: Build Android APK & AAB
         script: |
           cd android
-          ./gradlew assembleRelease bundleRelease
+          ./gradlew assembleDebug assembleRelease bundleRelease || ./gradlew assembleDebug
     artifacts:
       - android/app/build/outputs/**/*.apk
       - android/app/build/outputs/**/*.aab
@@ -61,7 +61,13 @@ workflows:
         script: |
           cd ios
           pod install
+      - name: Build iOS IPA
+        script: |
+          xcode-project build-ipa \
+            --workspace ios/ymktksy.xcworkspace \
+            --scheme ymktksy
     artifacts:
+      - build/ios/ipa/*.ipa
       - ios/build/**/*.ipa
       - /Users/builder/Library/Developer/Xcode/DerivedData/**/Build/Products/*/*.ipa
 
@@ -83,6 +89,13 @@ workflows:
         script: |
           cd ios
           pod install
+      - name: Build iOS IPA
+        script: |
+          xcode-project build-ipa \
+            --workspace ios/ymkkbtn.xcworkspace \
+            --scheme ymkkbtn
     artifacts:
+      - build/ios/ipa/*.ipa
       - ios/build/**/*.ipa
       - /Users/builder/Library/Developer/Xcode/DerivedData/**/Build/Products/*/*.ipa
+
