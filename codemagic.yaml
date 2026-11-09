@@ -1,5 +1,50 @@
 workflows:
+  customer-android:
+    name: Yamak Customer (Android APK & AAB)
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      node: 20
+      java: 17
+      vars:
+        APP_VARIANT: "customer"
+    scripts:
+      - name: Install npm dependencies
+        script: npm ci
+      - name: Expo Prebuild Android
+        script: npx expo prebuild --platform android --clean
+      - name: Build Android APK & AAB
+        script: |
+          cd android
+          ./gradlew assembleDebug assembleRelease bundleRelease || ./gradlew assembleDebug
+    artifacts:
+      - android/app/build/outputs/**/*.apk
+      - android/app/build/outputs/**/*.aab
+
+  captain-android:
+    name: Yamak Captain (Android APK & AAB)
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      node: 20
+      java: 17
+      vars:
+        APP_VARIANT: "captain"
+    scripts:
+      - name: Install npm dependencies
+        script: npm ci
+      - name: Expo Prebuild Android
+        script: npx expo prebuild --platform android --clean
+      - name: Build Android APK & AAB
+        script: |
+          cd android
+          ./gradlew assembleDebug assembleRelease bundleRelease || ./gradlew assembleDebug
+    artifacts:
+      - android/app/build/outputs/**/*.apk
+      - android/app/build/outputs/**/*.aab
+
   customer-ios:
+    name: Yamak Customer (iOS)
     name: Yamak Customer (iOS App Store & TestFlight)
     max_build_duration: 60
     instance_type: mac_mini_m2
@@ -30,6 +75,8 @@ workflows:
       - name: Build iOS IPA
         script: |
           xcode-project build-ipa \
+            --workspace ios/ymktksy.xcworkspace \
+            --scheme ymktksy
             --workspace "ios/$XCODE_WORKSPACE" \
             --scheme "$XCODE_SCHEME"
     artifacts:
@@ -43,6 +90,7 @@ workflows:
         expire_build_waiting_for_build_review: false
 
   captain-ios:
+    name: Yamak Captain (iOS)
     name: Yamak Captain (iOS App Store & TestFlight)
     max_build_duration: 60
     instance_type: mac_mini_m2
@@ -73,12 +121,15 @@ workflows:
       - name: Build iOS IPA
         script: |
           xcode-project build-ipa \
+            --workspace ios/ymkkbtn.xcworkspace \
+            --scheme ymkkbtn
             --workspace "ios/$XCODE_WORKSPACE" \
             --scheme "$XCODE_SCHEME"
     artifacts:
       - build/ios/ipa/*.ipa
       - ios/build/**/*.ipa
       - /Users/builder/Library/Developer/Xcode/DerivedData/**/Build/Products/*/*.ipa
+
     publishing:
       app_store_connect:
         auth: integration
