@@ -1,0 +1,88 @@
+workflows:
+  customer-android:
+    name: Yamak Customer (Android APK & AAB)
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      node: 20
+      java: 17
+      vars:
+        APP_VARIANT: "customer"
+    scripts:
+      - name: Install npm dependencies
+        script: npm ci
+      - name: Expo Prebuild Android
+        script: npx expo prebuild --platform android --clean
+      - name: Build Android APK & AAB
+        script: |
+          cd android
+          ./gradlew assembleRelease bundleRelease
+    artifacts:
+      - android/app/build/outputs/**/*.apk
+      - android/app/build/outputs/**/*.aab
+
+  captain-android:
+    name: Yamak Captain (Android APK & AAB)
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      node: 20
+      java: 17
+      vars:
+        APP_VARIANT: "captain"
+    scripts:
+      - name: Install npm dependencies
+        script: npm ci
+      - name: Expo Prebuild Android
+        script: npx expo prebuild --platform android --clean
+      - name: Build Android APK & AAB
+        script: |
+          cd android
+          ./gradlew assembleRelease bundleRelease
+    artifacts:
+      - android/app/build/outputs/**/*.apk
+      - android/app/build/outputs/**/*.aab
+
+  customer-ios:
+    name: Yamak Customer (iOS)
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      node: 20
+      xcode: latest
+      vars:
+        APP_VARIANT: "customer"
+    scripts:
+      - name: Install npm dependencies
+        script: npm ci
+      - name: Expo Prebuild iOS
+        script: npx expo prebuild --platform ios --clean
+      - name: Install CocoaPods
+        script: |
+          cd ios
+          pod install
+    artifacts:
+      - ios/build/**/*.ipa
+      - /Users/builder/Library/Developer/Xcode/DerivedData/**/Build/Products/*/*.ipa
+
+  captain-ios:
+    name: Yamak Captain (iOS)
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      node: 20
+      xcode: latest
+      vars:
+        APP_VARIANT: "captain"
+    scripts:
+      - name: Install npm dependencies
+        script: npm ci
+      - name: Expo Prebuild iOS
+        script: npx expo prebuild --platform ios --clean
+      - name: Install CocoaPods
+        script: |
+          cd ios
+          pod install
+    artifacts:
+      - ios/build/**/*.ipa
+      - /Users/builder/Library/Developer/Xcode/DerivedData/**/Build/Products/*/*.ipa
