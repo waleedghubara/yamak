@@ -56,7 +56,7 @@ workflows:
     instance_type: mac_mini_m2
 
     integrations:
-      app_store_connect: YOUR_ACTUAL_INTEGRATION_NAME
+      app_store_connect: App Apple
 
     environment:
       node: 22
