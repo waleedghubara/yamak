@@ -1,4 +1,4 @@
-
+```yaml
 workflows:
   # ==========================================
   # YAMAK CUSTOMER - ANDROID
@@ -72,6 +72,8 @@ workflows:
       app_store_connect: App Apple
 
     environment:
+      groups:
+        - ios-signing
       node: 22
       xcode: latest
       cocoapods: default
@@ -146,6 +148,8 @@ workflows:
       app_store_connect: App Apple
 
     environment:
+      groups:
+        - ios-signing
       node: 22
       xcode: latest
       cocoapods: default
@@ -207,3 +211,4 @@ workflows:
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
+```
