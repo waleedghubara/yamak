@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { AppState } from 'react-native';
 import { api, setAuthToken, setUnauthorizedHandler } from '../lib/api';
 import { stopBackgroundLocation } from '../lib/bgLocation';
 import { KEYS, storage } from '../lib/storage';
@@ -45,11 +46,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    (async () => {
-      const t = await storage.get(KEYS.token);
+    let done = false;
+    let sub: { remove: () => void } | null = null;
+    /** يرجع false إذا ما كدرنا نقرا التخزين (الآيفون شغّل التطبيق بالخلفية والشاشة مقفولة) */
+    const load = async (): Promise<boolean> => {
+      if (done) return true;
+      const r = await storage.read(KEYS.token);
+      if (!r.ok) return false;
+      done = true;
+      const t = r.value;
       if (t) {
         setAuthToken(t);
         setToken(t);
+        // نعيد حفظه بالإعداد الجديد (يتقرا حتى والشاشة مقفولة)
+        storage.set(KEYS.token, t);
         try {
           setMe(await api<Me>('/api/me'));
         } catch {
@@ -57,7 +67,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
       setReady(true);
+      return true;
+    };
+    (async () => {
+      if (await load()) return;
+      // ننتظر لحد ما يفتح الموبايل والتطبيق، وبعدين نقرا التوكن — بدون ما نطلّعه من حسابه
+      sub = AppState.addEventListener('change', (s) => {
+        if (s === 'active') load().then((ok) => ok && sub?.remove());
+      });
+      if (AppState.currentState === 'active') {
+        setTimeout(() => load().then((ok) => ok && sub?.remove()), 1000);
+      }
     })();
+    return () => sub?.remove();
   }, []);
 
   useEffect(() => {

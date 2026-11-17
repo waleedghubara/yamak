@@ -1,4 +1,5 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
+import { AppState } from 'react-native';
 import { api } from '../lib/api';
 import type { PublicConfig } from '../lib/types';
 
@@ -29,6 +30,7 @@ const FALLBACK: PublicConfig = {
 };
 
 const ConfigContext = createContext<PublicConfig>(FALLBACK);
+const PatchContext = createContext<(p: Partial<PublicConfig>) => void>(() => {});
 
 export function AppConfigProvider({ children }: { children: ReactNode }) {
   const [cfg, setCfg] = useState<PublicConfig>(FALLBACK);
@@ -41,13 +43,26 @@ export function AppConfigProvider({ children }: { children: ReactNode }) {
           if (!cancelled && attempt < 5) setTimeout(() => load(attempt + 1), 3000 * (attempt + 1));
         });
     load(0);
+    // كل ما يرجع للتطبيق نحدث الإعدادات (مثلاً الإدارة شغلت أو وقفت طلبات الزبائن)
+    const sub = AppState.addEventListener('change', (st) => st === 'active' && load(4));
     return () => {
       cancelled = true;
+      sub.remove();
     };
   }, []);
-  return <ConfigContext.Provider value={cfg}>{children}</ConfigContext.Provider>;
+  const patch = useCallback((p: Partial<PublicConfig>) => setCfg((c) => ({ ...c, ...p })), []);
+  return (
+    <PatchContext.Provider value={patch}>
+      <ConfigContext.Provider value={cfg}>{children}</ConfigContext.Provider>
+    </PatchContext.Provider>
+  );
 }
 
 export function useAppConfig() {
   return useContext(ConfigContext);
+}
+
+/** تحديث فوري لجزء من الإعدادات (من حدث الـ socket) */
+export function usePatchAppConfig() {
+  return useContext(PatchContext);
 }

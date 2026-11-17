@@ -260,6 +260,8 @@ export interface PublicConfig {
   privacyUrl: string;
   cancelPenaltyPercent: number;
   deliveryEnabled?: boolean;
+  /** طلبات الزبائن شغالة؟ (زر بلوحة الإدارة) */
+  ridesEnabled?: boolean;
   otpChannel?: 'whatsapp' | 'sms';
   lists: {
     cancelReasonsCustomer: string[];

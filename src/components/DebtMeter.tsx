@@ -1,12 +1,14 @@
 import { useTranslation } from 'react-i18next';
 import { StyleSheet, View } from 'react-native';
+import { balanceColor, creditOf, CREDIT_FULL } from '../lib/balance';
 import { iqd } from '../lib/format';
 import { colors, fonts, radius, space } from '../theme';
 import { Icon, Row, T } from './ui';
 
 /**
- * مؤشر مستحقات الكابتن للشركة:
- *   أخضر ← أصفر عند حد التنبيه (13,000) ← أحمر عند حد الإيقاف (15,000)
+ * رصيد الكابتن ويا الشركة:
+ *   رصيد إله ← «رصيدك الحالي» أخضر ويحمر تدريجياً لحد الصفر
+ *   عليه للشركة ← «مطلوب للشركة» بالأحمر، وعند حد الإيقاف (15,000) أحمر غامق
  */
 export function DebtMeter({
   balance,
@@ -22,10 +24,43 @@ export function DebtMeter({
   compact?: boolean;
 }) {
   const { t } = useTranslation();
+  // رصيد إله (مثل هدية 25,000): «رصيدك الحالي» بالأخضر ويحمر تدريجياً كلما نقص
+  if (balance <= 0) {
+    const credit = creditOf(balance);
+    const c = balanceColor(balance);
+    return (
+      <View style={[styles.box, { backgroundColor: colors.white, borderColor: c }]}>
+        <Row style={{ justifyContent: 'space-between' }}>
+          <Row gap={6} style={{ flex: 1 }}>
+            <Icon name="wallet-outline" size={20} color={c} />
+            <T v="small" style={{ flex: 1 }} numberOfLines={1}>
+              {t('captain.debt.balanceNow')}
+            </T>
+          </Row>
+          <T style={[styles.amount, { color: c }]}>{iqd(credit)}</T>
+        </Row>
+        <View style={styles.track}>
+          <View style={[styles.fill, { width: `${Math.min(1, credit / CREDIT_FULL) * 100}%`, backgroundColor: c }]} />
+        </View>
+        <T v="small" color={colors.muted} numberOfLines={compact ? 2 : undefined}>
+          {t('captain.debt.balanceHint')}
+        </T>
+        {pendingReceipt ? (
+          <Row gap={6}>
+            <Icon name="timer-sand" size={16} color={colors.primary} />
+            <T v="small" color={colors.primary}>
+              {t('captain.receipt.pending')}
+            </T>
+          </Row>
+        ) : null}
+      </View>
+    );
+  }
   const state = balance >= maxDebt ? 'blocked' : balance >= warnAt ? 'warning' : 'ok';
   const pct = Math.max(0, Math.min(1, balance / Math.max(1, maxDebt)));
-  const color = state === 'blocked' ? colors.danger : state === 'warning' ? '#E69B00' : colors.success;
-  const bg = state === 'blocked' ? colors.dangerSoft : state === 'warning' ? colors.warningSoft : colors.white;
+  // عليه للشركة: أحمر (أغمق كلما قرب من حد الإيقاف)
+  const color = state === 'blocked' ? 'hsl(0, 75%, 28%)' : colors.danger;
+  const bg = state === 'blocked' || state === 'warning' ? colors.dangerSoft : colors.white;
   const msg =
     state === 'blocked'
       ? t('captain.debt.blockedShort')
@@ -33,15 +68,15 @@ export function DebtMeter({
         ? t('captain.debt.warningShort', { max: iqd(maxDebt) })
         : t('captain.debt.okShort', { max: iqd(maxDebt) });
   return (
-    <View style={[styles.box, { backgroundColor: bg, borderColor: state === 'ok' ? colors.border : color }]}>
+    <View style={[styles.box, { backgroundColor: bg, borderColor: color }]}>
       <Row style={{ justifyContent: 'space-between' }}>
         <Row gap={6} style={{ flex: 1 }}>
-          <Icon name={state === 'ok' ? 'wallet-outline' : 'alert-circle'} size={20} color={state === 'ok' ? colors.primary : color} />
+          <Icon name={state === 'ok' ? 'wallet-outline' : 'alert-circle'} size={20} color={color} />
           <T v="small" style={{ flex: 1 }} numberOfLines={1}>
-            {t('captain.owed')}
+            {t('captain.debt.dueToCompany')}
           </T>
         </Row>
-        <T style={[styles.amount, { color: state === 'ok' ? colors.text : color }]}>{iqd(balance)}</T>
+        <T style={[styles.amount, { color }]}>-{iqd(balance)}</T>
       </Row>
       <View style={styles.track}>
         <View style={[styles.fill, { width: `${pct * 100}%`, backgroundColor: color }]} />
@@ -51,7 +86,7 @@ export function DebtMeter({
           <View style={styles.mark} />
         </View>
       </View>
-      <T v="small" color={state === 'ok' ? colors.muted : color} numberOfLines={compact ? 2 : undefined}>
+      <T v="small" color={color} numberOfLines={compact ? 2 : undefined}>
         {msg}
       </T>
       {pendingReceipt ? (

@@ -210,7 +210,12 @@ export default function BookScreen() {
       });
       setQuote(q);
       requestId.current = Crypto.randomUUID();
-      setCategory((c) => (q.options.some((o) => o.category === c) ? c : (q.options.find((o) => o.available) ?? q.options[0])?.category ?? 'taxi'));
+      // نختار فئة متوفرة (إذا الفئة المختارة صارت غير متوفرة نبدلها)، وإذا ماكو ولا وحدة نخلي الأولى
+      setCategory((c) => {
+        const cur = q.options.find((o) => o.category === c);
+        if (cur?.available) return c;
+        return (q.options.find((o) => o.available) ?? cur ?? q.options[0])?.category ?? 'taxi';
+      });
       return q;
     } catch (err) {
       setQuote(null);
@@ -231,6 +236,8 @@ export default function BookScreen() {
   }, [quote, step, pickup, stop, dropoff, insets.top]);
 
   const option = quote?.options.find((o) => o.category === category);
+  // ماكو أي كابتن متوفر: ما نعرض سعر، ونكتب «غير متوفر» — والزبون يكدر يطلب وننتظر أول كابتن يتصل
+  const noneAvailable = !!quote && !isDelivery && !quote.options.some((o) => o.available);
   const promoErr = promo && option?.promoError ? t(`errors.${option.promoError}`) : null;
 
   const order = async () => {
@@ -258,7 +265,7 @@ export default function BookScreen() {
         },
         headers: { 'Idempotency-Key': requestId.current },
       });
-      router.replace(`/ride/${ride.id}`);
+      router.replace(noneAvailable ? `/ride/${ride.id}?unavail=1` : `/ride/${ride.id}`);
     } catch (err) {
       const code = err instanceof ApiError ? err.code : '';
       if (code === 'quote_expired' || code.startsWith('promo_')) {
@@ -440,8 +447,16 @@ export default function BookScreen() {
                 <Row gap={space.sm}>
                   {quote.options.map((o) => {
                     const sel = o.category === category;
+                    // فئة غير متوفرة (ماكو كابتن، أو كابتنها بعيد وسعرها يطلع أعلى): ما نعرض سعرها وما تنختار
+                    const off = !o.available && !isDelivery;
+                    const canPick = !off || noneAvailable;
                     return (
-                      <Pressable key={o.category} onPress={() => setCategory(o.category)} style={[styles.cat, sel && styles.catSel]}>
+                      <Pressable
+                        key={o.category}
+                        disabled={!canPick}
+                        onPress={() => setCategory(o.category)}
+                        style={[styles.cat, sel && styles.catSel, !canPick && { opacity: 0.55 }]}
+                      >
                         <Icon
                           name={isDelivery ? 'package-variant-closed' : o.category === 'private' ? 'car-side' : 'taxi'}
                           size={28}
@@ -453,18 +468,26 @@ export default function BookScreen() {
                         <T v="small" color={sel ? colors.primaryMuted : colors.muted}>
                           {o.available && o.driverEtaMin ? t('book.arrivesIn', { min: o.driverEtaMin }) : t('book.unavailable')}
                         </T>
-                        {o.discount > 0 ? (
+                        {!off && o.discount > 0 ? (
                           <T v="small" color={sel ? colors.primaryMuted : colors.muted} style={{ textDecorationLine: 'line-through' }}>
                             {iqd(o.fareBeforeDiscount)}
                           </T>
                         ) : null}
-                        <T style={{ fontFamily: fonts.heavy, fontSize: 16 }} color={sel ? colors.white : colors.primaryDark}>
-                          {iqd(o.finalFare)}
-                        </T>
+                        {off ? null : (
+                          <T style={{ fontFamily: fonts.heavy, fontSize: 16 }} color={sel ? colors.white : colors.primaryDark}>
+                            {iqd(o.finalFare)}
+                          </T>
+                        )}
                       </Pressable>
                     );
                   })}
                 </Row>
+
+                {noneAvailable ? (
+                  <T v="small" center color={colors.warning}>
+                    {t('live.noneAvailable')}
+                  </T>
+                ) : null}
 
                 <Row style={styles.summary}>
                   <Summary label={t('book.distance')} value={km(quote.distanceKm)} />
@@ -473,7 +496,13 @@ export default function BookScreen() {
                   <View style={styles.vline} />
                   <View style={{ flex: 1, alignItems: 'center' }}>
                     <T v="small">{t('book.price')}</T>
-                    {option ? <PriceText final={option.finalFare} before={option.discount ? option.fareBeforeDiscount : undefined} /> : null}
+                    {option && (option.available || isDelivery) ? (
+                      <PriceText final={option.finalFare} before={option.discount ? option.fareBeforeDiscount : undefined} />
+                    ) : (
+                      <T v="bodyBold" color={colors.muted}>
+                        {t('book.unavailable')}
+                      </T>
+                    )}
                   </View>
                 </Row>
 

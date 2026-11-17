@@ -35,6 +35,7 @@ const tk: Strings = {
   },
 
   errors: {
+    rides_disabled: 'Yolculuk talepleri şu an yönetim tarafından durduruldu — yakında dönüyoruz',
     network_error: 'İnternet bağlantısı zayıf, tekrar deneyin',
     invalid_phone: 'Telefon numarası hatalı',
     otp_invalid: 'Kod hatalı',
@@ -177,6 +178,27 @@ const tk: Strings = {
     places: 'Kayıtlı',
     account: 'Hesabım',
     earnings: 'Kazanç',
+  },
+
+  notifications: {
+    title: 'Bildirimler',
+    empty: 'Şu an bildirim yok',
+    hint: "Yamak'ın tüm teklif ve duyuruları burada",
+  },
+
+  live: {
+    ridesOff: 'Talepler şu an durduruldu',
+    ridesOffHint: 'Talepler açılınca size haber vereceğiz',
+    channel: 'Yolculuk takibi',
+    searching: 'Size kaptan arıyoruz…',
+    coming: 'Kaptan {{min}} dk içinde geliyor',
+    comingNoEta: 'Kaptan size doğru yolda',
+    arrived: 'Kaptan geldi — sizi bekliyor',
+    inTrip: '{{min}} dk içinde varıyorsunuz',
+    inTripNoEta: 'Hedefinize doğru yoldasınız',
+    remaining: '{{km}} kaldı',
+    noneAvailable: 'Şu an müsait değil — sipariş verebilirsiniz, ilk çevrimiçi olan kaptanı size buluruz',
+    searchingUnavailable: 'Şu an müsait değil… ilk çevrimiçi olan kaptana siparişiniz gider',
   },
 
   book: {
@@ -615,6 +637,9 @@ const tk: Strings = {
       blockedTitle: "Talep alımı durdu",
       blockedBody: "Borç sınırına ulaştınız. Hesabınızın sıfırlanması için ödemeyi Master ile yapıp makbuzu yükleyin.",
       payNow: "Şimdi öde",
+      balanceNow: 'Mevcut bakiyeniz',
+      dueToCompany: 'Şirkete borç',
+      balanceHint: 'Her yolculuğun komisyonu bakiyenizden düşülür',
     },
     receipt: {
       howToPay: "Ödeme yöntemi",

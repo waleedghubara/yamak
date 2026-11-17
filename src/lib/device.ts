@@ -30,27 +30,58 @@ export const WEAK_GPS_METERS = 60;
 
 // ───────── الإشعارات ─────────
 
+/** إشعار متابعة الرحلة الثابت (أندرويد) — يتحدث بصمت، ما يطلع كإشعار منبثق */
+export const TRIP_NOTIFICATION_ID = 'yamak-trip';
+
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
+  handleNotification: async (n) => {
+    const quiet = n.request.identifier === TRIP_NOTIFICATION_ID;
+    return {
+      shouldPlaySound: !quiet,
+      shouldSetBadge: false,
+      shouldShowBanner: !quiet,
+      shouldShowList: true,
+    };
+  },
 });
+
+/**
+ * قنوات أندرويد:
+ *   rides  أعلى أولوية — طلبات ورحلات (منبثق + صوت)
+ *   news   عالية — إشعارات الإدارة (عروض وتبليغات) تطلع بالشريط حتى لو التطبيق مسدود
+ *   trip   هادئة — متابعة الرحلة (وقت الوصول + الخط) بشاشة القفل والشريط بدون صوت
+ */
+export async function ensureNotificationChannels() {
+  if (Platform.OS !== 'android') return;
+  await Notifications.setNotificationChannelAsync('rides', {
+    name: 'Rides',
+    importance: Notifications.AndroidImportance.MAX,
+    sound: 'default',
+    vibrationPattern: [0, 250, 250, 250],
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+  });
+  await Notifications.setNotificationChannelAsync('news', {
+    name: i18n.t('notifications.title'),
+    importance: Notifications.AndroidImportance.HIGH,
+    sound: 'default',
+    vibrationPattern: [0, 200],
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+  });
+  await Notifications.setNotificationChannelAsync('trip', {
+    name: i18n.t('live.channel'),
+    importance: Notifications.AndroidImportance.LOW,
+    sound: null,
+    enableVibrate: false,
+    showBadge: false,
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+  });
+}
 
 /** يسجل الجهاز لإشعارات Push ويرسل الـ token للسيرفر */
 export async function registerForPush() {
   try {
     if (!Device.isDevice) return;
-    if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync('rides', {
-        name: 'Rides',
-        importance: Notifications.AndroidImportance.MAX,
-        sound: 'default',
-        vibrationPattern: [0, 250, 250, 250],
-      });
-    }
+    await ensureNotificationChannels();
     let { status } = await Notifications.getPermissionsAsync();
     if (status !== 'granted') status = (await Notifications.requestPermissionsAsync()).status;
     if (status !== 'granted') return;
@@ -59,6 +90,7 @@ export async function registerForPush() {
     const { data } = await Notifications.getExpoPushTokenAsync({ projectId });
     await api('/api/me/push-token', { body: { token: data } });
   } catch (err) {
+    // أندرويد بدون ملف Firebase (google-services.json) يفشل هنا — الإشعارات تظل تطلع بخانة «الإشعارات» داخل التطبيق
     console.warn('push registration failed', err);
   }
 }

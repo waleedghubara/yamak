@@ -81,6 +81,8 @@ workflows:
         APP_VARIANT: "customer"
         IOS_BUNDLE_IDENTIFIER: "com.waleedghubara.yamak.customer"
         BUNDLE_IDENTIFIER: "com.waleedghubara.yamak.customer"
+        # 1.3.0: Live Activity extension (set to "0" to build without it)
+        LIVE_ACTIVITY: "1"
         XCODE_WORKSPACE: "ymktksy.xcworkspace"
         XCODE_SCHEME: "ymktksy"
 
@@ -118,6 +120,16 @@ workflows:
             "$BUNDLE_IDENTIFIER" \
             --type IOS_APP_STORE \
             --create
+
+      # 1.3.0: the customer app has a Live Activity extension that needs its own App ID + profile
+      - name: Fetch Live Activity Signing Files
+        script: |
+          if [ "$LIVE_ACTIVITY" != "0" ]; then
+            app-store-connect fetch-signing-files \
+              "$BUNDLE_IDENTIFIER.LiveActivity" \
+              --type IOS_APP_STORE \
+              --create
+          fi
 
       - name: Install Signing Certificates
         script: keychain add-certificates
@@ -163,8 +175,9 @@ workflows:
         APP_VARIANT: "captain"
         IOS_BUNDLE_IDENTIFIER: "com.waleedghubara.yamak.captain"
         BUNDLE_IDENTIFIER: "com.waleedghubara.yamak.captain"
-        XCODE_WORKSPACE: "ymkkbtn.xcworkspace"
-        XCODE_SCHEME: "ymkkbtn"
+        # Expo prebuild names the captain project "ymkkabtn" (from the app name «يمك كابتن»)
+        XCODE_WORKSPACE: "ymkkabtn.xcworkspace"
+        XCODE_SCHEME: "ymkkabtn"
 
     scripts:
       - name: Install npm dependencies

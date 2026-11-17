@@ -140,6 +140,7 @@ export default function AccountScreen() {
           ) : (
             <ListItem icon="cash" title={t('captain.earnings.title')} onPress={() => router.navigate('/(captain)/earnings')} />
           )}
+          <ListItem icon="bell-outline" title={t('notifications.title')} onPress={() => router.push('/notifications')} />
           <ListItem icon="headset" title={t('support.title')} onPress={() => router.push('/support')} />
         </Card>
 

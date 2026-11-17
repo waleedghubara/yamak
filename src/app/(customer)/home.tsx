@@ -8,6 +8,7 @@ import { BottomModal, Button, Chip, Icon, IconButton, ListItem, Row, Sheet, T, t
 import { YMap, type MapMarker, type YMapHandle } from '../../components/YMap';
 import { KIRKUK_CENTER, NEARBY_REFRESH_MS } from '../../config';
 import { api } from '../../lib/api';
+import { clearTripStatus } from '../../lib/tripStatus';
 import { haversineKm } from '../../lib/geo';
 import { getFix, requestLocation, useMyLocation } from '../../lib/location';
 import type { NearbyCar, Point, ReverseInfo, Ride, SavedPlace } from '../../lib/types';
@@ -36,6 +37,7 @@ export default function HomeScreen() {
   const [active, setActive] = useState<Ride | null>(null);
   const [places, setPlaces] = useState<SavedPlace[]>([]);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [unread, setUnread] = useState(0);
   const [initial] = useState(() => getFix());
   const centered = useRef(!!initial);
   const userMoved = useRef(false);
@@ -73,7 +75,16 @@ export default function HomeScreen() {
   // عند الرجوع للشاشة: الرحلة الحالية، الأماكن المحفوظة، والتقييم المعلق
   useFocusEffect(
     useCallback(() => {
-      api<Ride | null>('/api/rides/active').then(setActive).catch(() => {});
+      api<Ride | null>('/api/rides/active')
+        .then((r) => {
+          setActive(r);
+          // ماكو رحلة فعالة: نسد أي متابعة رحلة قديمة باقية على شاشة القفل
+          if (!r) clearTripStatus();
+        })
+        .catch(() => {});
+      api<{ unread: number }>('/api/me/notifications')
+        .then((n) => setUnread(n.unread))
+        .catch(() => {});
       api<SavedPlace[]>('/api/me/places').then(setPlaces).catch(() => {});
       api<Ride | null>('/api/rides/pending-rating')
         .then((r) => {
@@ -105,12 +116,21 @@ export default function HomeScreen() {
   );
 
   useSocketEvent<Ride>('ride:update', (r) => {
-    setActive(['SEARCHING', 'DRIVER_ASSIGNED', 'DRIVER_EN_ROUTE', 'DRIVER_ARRIVED', 'IN_TRIP'].includes(r.status) ? r : null);
+    const live = ['SEARCHING', 'DRIVER_ASSIGNED', 'DRIVER_EN_ROUTE', 'DRIVER_ARRIVED', 'IN_TRIP'].includes(r.status);
+    setActive(live ? r : null);
+    if (!live) clearTripStatus(undefined, r.id);
   });
 
   const here: Point | undefined = fix ? { lat: fix.lat, lng: fix.lng, address } : undefined;
 
+  // زر الإدارة: طلبات الزبائن متوقفة
+  const ridesOff = cfg.ridesEnabled === false;
+
   const book = (opts: { dropoff?: Point; startAt?: 'pickup' | 'dropoff'; service?: 'ride' | 'delivery' }) => {
+    if (ridesOff) {
+      Alert.alert(t('live.ridesOff'), t('errors.rides_disabled'));
+      return;
+    }
     setPendingBooking({ pickup: opts.startAt === 'dropoff' ? here : undefined, dropoff: opts.dropoff });
     router.push({ pathname: '/book', params: { step: opts.startAt ?? 'pickup', service: opts.service ?? 'ride' } });
   };
@@ -142,9 +162,21 @@ export default function HomeScreen() {
             <T v="caption">{me?.user.name ? t('home.helloName', { name: me.user.name.split(' ')[0] }) : t('home.hello')}</T>
             <T v="h2">{t('home.whereTo')}</T>
           </View>
-          <T v="logo" style={{ fontSize: 30, lineHeight: 42 }}>
-            {t('appName')}
-          </T>
+          <Row gap={space.sm}>
+            <View>
+              <IconButton name={unread ? 'bell-ring' : 'bell-outline'} color={colors.primary} size={40} onPress={() => router.push('/notifications')} />
+              {unread ? (
+                <View style={styles.badge}>
+                  <T v="small" color={colors.white} style={{ fontSize: 11, lineHeight: 14 }}>
+                    {unread > 9 ? '9+' : unread}
+                  </T>
+                </View>
+              ) : null}
+            </View>
+            <T v="logo" style={{ fontSize: 30, lineHeight: 42 }}>
+              {t('appName')}
+            </T>
+          </Row>
         </Row>
         <Pressable onPress={() => book({ startAt: here ? 'dropoff' : 'pickup' })} style={styles.search}>
           <Icon name="magnify" color={colors.primary} />
@@ -193,6 +225,20 @@ export default function HomeScreen() {
           </Pressable>
         ) : null}
 
+        {ridesOff ? (
+          <Row style={styles.ridesOff}>
+            <Icon name="clock-outline" color={colors.warning} />
+            <View style={{ flex: 1 }}>
+              <T v="bodyBold" color={colors.warning}>
+                {t('live.ridesOff')}
+              </T>
+              <T v="small" color={colors.textSoft}>
+                {t('live.ridesOffHint')}
+              </T>
+            </View>
+          </Row>
+        ) : null}
+
         <Row gap={space.sm} style={{ justifyContent: 'space-between' }}>
           <ServiceTile icon="car" label={t('home.taxi')} primary onPress={() => book({ startAt: 'pickup' })} />
           <ServiceTile
@@ -234,6 +280,7 @@ export default function HomeScreen() {
             ['bookmark-outline', 'more.saved', () => router.navigate('/(customer)/places')],
             ['ticket-percent', 'more.promo', () => Alert.alert(t('more.promo'), t('account.discountsHint'))],
             ['star-outline', 'more.offers', comingSoon],
+            ['bell-outline', 'notifications.title', () => router.push('/notifications')],
             ['headset', 'more.support', () => router.push('/support')],
             ['account-outline', 'more.settings', () => router.navigate('/(customer)/account')],
           ] as [IconName, string, () => void][]
@@ -293,6 +340,24 @@ const styles = StyleSheet.create({
     minHeight: 52,
   },
   recenter: { position: 'absolute', top: -60, end: space.lg },
+  ridesOff: {
+    gap: space.sm,
+    padding: space.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.warningSoft,
+  },
+  badge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    backgroundColor: colors.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   activeBanner: {
     flexDirection: 'row',
     alignItems: 'center',

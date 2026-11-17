@@ -2,7 +2,8 @@ import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import { AppState } from 'react-native';
 import { colors } from '../theme';
-import { api } from './api';
+import { api, getAuthToken } from './api';
+import { KEYS, storage } from './storage';
 
 /**
  * موقع الكابتن بالخلفية: لما يطلع من التطبيق أو يطفي الشاشة، الزبون يظل يشوف السيارة تتحرك.
@@ -22,7 +23,13 @@ TaskManager.defineTask<{ locations?: Location.LocationObject[] }>(BG_LOCATION_TA
   const now = Date.now();
   if (now - lastSent < MIN_SEND_MS) return;
   lastSent = now;
+  // الآيفون يشغّل التطبيق بالخلفية (بعد ما الكابتن يسده من الشاشة) وهذي المهمة تشتغل قبل ما ينقرا التوكن:
+  // نقرا التوكن هنا، وإذا ما انقرا ما نرسل — وأبداً ما نطلّع الكابتن من حسابه من الخلفية
+  const token = getAuthToken() ?? (await storage.get(KEYS.token));
+  if (!token) return;
   await api('/api/captain/location', {
+    headers: { Authorization: `Bearer ${token}` },
+    keepSession: true,
     body: {
       lat: l.coords.latitude,
       lng: l.coords.longitude,

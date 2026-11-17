@@ -1,6 +1,6 @@
 import NetInfo from '@react-native-community/netinfo';
-import { useEffect, useState } from 'react';
-import { Alert, Image, Linking, Pressable, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert, Animated, Image, Linking, Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import { api } from '../lib/api';
@@ -49,31 +49,83 @@ export function NetworkBanner() {
   );
 }
 
-/** مساحة الإعلان أسفل الواجهة — تتغير من لوحة الإدارة */
+/** كل كم ثانية يتبدل الإعلان */
+const AD_ROTATE_MS = 5000;
+
+/**
+ * مساحة الإعلان أسفل الواجهة — تتغير من لوحة الإدارة.
+ * إذا أكثر من إعلان: تتبدل وحدها كل 5 ثواني (ويا نقاط تبين عددها، وتكدر تضغط على النقطة)
+ */
 export function AdBanner({ app }: { app: 'customer' | 'captain' }) {
-  const [ad, setAd] = useState<Ad | null>(null);
+  const [ads, setAds] = useState<Ad[]>([]);
+  const [idx, setIdx] = useState(0);
+  const fade = useRef(new Animated.Value(1)).current;
+  const idxRef = useRef(0);
+  idxRef.current = idx;
+
   useEffect(() => {
     api<Ad[]>('/api/content/ads', { query: { app } })
-      .then((ads) => setAd(ads[0] ?? null))
+      .then((list) => {
+        setAds(list);
+        setIdx(0);
+      })
       .catch(() => {});
   }, [app]);
+
+  const goTo = useCallback(
+    (next: number) => {
+      Animated.timing(fade, { toValue: 0, duration: 220, useNativeDriver: true }).start(() => {
+        setIdx(next);
+        Animated.timing(fade, { toValue: 1, duration: 280, useNativeDriver: true }).start();
+      });
+    },
+    [fade],
+  );
+
+  useEffect(() => {
+    if (ads.length < 2) return;
+    const timer = setInterval(() => goTo((idxRef.current + 1) % ads.length), AD_ROTATE_MS);
+    return () => clearInterval(timer);
+  }, [ads.length, goTo]);
+
+  const ad = ads[idx] ?? ads[0];
   if (!ad) return null;
   const open = () => {
     if (ad.actionUrl) Linking.openURL(ad.actionUrl).catch(() => {});
   };
   return (
-    <Pressable onPress={open} style={{ borderRadius: radius.md, overflow: 'hidden', backgroundColor: colors.primarySoft }}>
-      {ad.imageUrl ? (
-        <Image source={{ uri: ad.imageUrl }} style={{ width: '100%', height: 84 }} resizeMode="cover" accessibilityLabel={ad.title} />
-      ) : (
-        <Row style={{ padding: space.md }}>
-          <Icon name="ticket-percent" color={colors.primary} />
-          <T v="bodyBold" color={colors.primaryDark} style={{ flex: 1 }}>
-            {ad.title}
-          </T>
+    <View style={{ gap: 6 }}>
+      <Animated.View style={{ opacity: fade }}>
+        <Pressable onPress={open} style={{ borderRadius: radius.md, overflow: 'hidden', backgroundColor: colors.primarySoft }}>
+          {ad.imageUrl ? (
+            <Image source={{ uri: ad.imageUrl }} style={{ width: '100%', height: 84 }} resizeMode="cover" accessibilityLabel={ad.title} />
+          ) : (
+            <Row style={{ padding: space.md }}>
+              <Icon name="ticket-percent" color={colors.primary} />
+              <T v="bodyBold" color={colors.primaryDark} style={{ flex: 1 }}>
+                {ad.title}
+              </T>
+            </Row>
+          )}
+        </Pressable>
+      </Animated.View>
+      {ads.length > 1 ? (
+        <Row gap={6} style={{ justifyContent: 'center' }}>
+          {ads.map((a, i) => (
+            <Pressable key={a.id} hitSlop={8} onPress={() => i !== idx && goTo(i)}>
+              <View
+                style={{
+                  width: i === idx ? 16 : 6,
+                  height: 6,
+                  borderRadius: 3,
+                  backgroundColor: i === idx ? colors.primary : colors.primaryMuted,
+                }}
+              />
+            </Pressable>
+          ))}
         </Row>
-      )}
-    </Pressable>
+      ) : null}
+    </View>
   );
 }
 

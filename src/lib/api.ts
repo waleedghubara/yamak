@@ -24,6 +24,9 @@ let onUnauthorized: (() => void) | null = null;
 export function setAuthToken(t: string | null) {
   authToken = t;
 }
+export function getAuthToken() {
+  return authToken;
+}
 export function setUnauthorizedHandler(fn: (() => void) | null) {
   onUnauthorized = fn;
 }
@@ -34,6 +37,8 @@ interface Opts {
   query?: Record<string, string | number | boolean | undefined | null>;
   headers?: Record<string, string>;
   timeoutMs?: number;
+  /** رد 401 على هذا الطلب ما يطلّع المستخدم من حسابه (طلبات الخلفية) */
+  keepSession?: boolean;
 }
 
 export async function api<T = any>(path: string, opts: Opts = {}): Promise<T> {
@@ -46,6 +51,8 @@ export async function api<T = any>(path: string, opts: Opts = {}): Promise<T> {
     : '';
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 15000);
+  // التوكن اللي انرسل ويا هذا الطلب: نطلّع المستخدم بس إذا السيرفر رفض نفس التوكن الحالي
+  const sentToken = authToken;
   let res: Response;
   try {
     res = await fetch(`${getBaseUrl()}${path}${qs}`, {
@@ -69,7 +76,8 @@ export async function api<T = any>(path: string, opts: Opts = {}): Promise<T> {
   }
   const data: any = await res.json().catch(() => null);
   if (!res.ok) {
-    if (res.status === 401) onUnauthorized?.();
+    // طلب بدون توكن (مثلاً من الخلفية قبل ما ينقرا التوكن) ما يمسح الجلسة
+    if (res.status === 401 && !opts.keepSession && sentToken && sentToken === authToken) onUnauthorized?.();
     throw new ApiError(res.status, data?.error ?? 'unknown_error', data?.details);
   }
   return data as T;

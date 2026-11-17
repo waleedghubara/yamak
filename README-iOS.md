@@ -7,10 +7,22 @@ One Expo codebase (Expo SDK 57, React Native 0.86, TypeScript) produces **two se
 | Customer | `customer` | يمك تكسي | `iq.yamak.app` | `customer-production` |
 | Captain (driver) | `captain` | يمك كابتن | `iq.yamak.captain` | `captain-production` |
 
-- Version: `1.2.0` (in `app.config.ts`). Build numbers are managed by EAS (`"appVersionSource": "remote"`).
+- Version: `1.3.0` (in `app.config.ts`). Build numbers are managed by EAS (`"appVersionSource": "remote"`).
 - Backend: `https://api.yamaktaxi.com` (set in `yamak.config.json`; do not change).
 - `ios/` and `android/` folders are generated (Continuous Native Generation). Do not edit them by hand.
 - Verified before handoff: `npm ci`, `tsc --noEmit` and `expo prebuild -p ios` succeed for both variants.
+
+## What's new in 1.3.0 (read before building)
+- **Live Activity (customer app only):** the customer app now shows the captain's arrival time with a progress bar on the Lock Screen / Dynamic Island (iOS 16.2+), via `expo-live-activity`.
+  It adds a widget extension target `LiveActivity` with bundle ID **`iq.yamak.app.LiveActivity`**.
+  Run the **first** customer build interactively (no `--non-interactive`) and log in to Apple when asked, so EAS can register this App ID and create its provisioning profile.
+  If the customer build fails because of the extension, build without it: `--profile customer-production-nolive` (everything else stays the same).
+- **Push notifications:** when EAS asks *"Would you like to set up Push Notifications for your project?"* answer **Yes** (it creates/uses the APNs key). Without it, iPhones get no notifications.
+- New dependency: run `npm ci` again before building (`expo-live-activity@0.4.2`).
+- Captain app: fixed captains being logged out after swiping the app away while online (background location).
+- Both apps: admin announcements are in-app (small pop-up at the top + Notifications screen behind the bell icon), rotating ad banner, same price for taxi/private (a category whose price would be higher shows as unavailable).
+- Customer app: the admin can switch customer ride requests on/off from the dashboard; when off, the app shows "requests are paused".
+- Captain app: balance shown as green "current balance" (turns red as it runs out) or red "due to company".
 
 ## Requirements
 - Node.js 20 or newer, npm

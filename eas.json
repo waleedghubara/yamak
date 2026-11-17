@@ -48,10 +48,18 @@
       "env": {
         "APP_VARIANT": "captain"
       }
+    },
+    "customer-production-nolive": {
+      "extends": "customer-production",
+      "env": {
+        "APP_VARIANT": "customer",
+        "LIVE_ACTIVITY": "0"
+      }
     }
   },
   "submit": {
     "customer-production": {},
-    "captain-production": {}
+    "captain-production": {},
+    "customer-production-nolive": {}
   }
 }

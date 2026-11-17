@@ -1,6 +1,6 @@
 
 import type { ConfigContext, ExpoConfig } from 'expo/config';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 /**
@@ -73,6 +73,16 @@ const ANDROID_PACKAGE = CAPTAIN
 
 const ALLOW_HTTP = API_URL.startsWith('http://');
 
+// Android push (optional): put google-services.json next to this file to enable FCM.
+const GOOGLE_SERVICES = existsSync(path.join(__dirname, 'google-services.json'))
+  ? './google-services.json'
+  : undefined;
+
+// 1.3.0: Live Activity (captain arrival time + progress bar on the iPhone Lock Screen) — customer app only.
+// Adds an iOS app extension with bundle ID `${IOS_BUNDLE_IDENTIFIER}.LiveActivity`.
+// Set LIVE_ACTIVITY=0 to build without it.
+const LIVE_ACTIVITY = !CAPTAIN && process.env.LIVE_ACTIVITY !== '0';
+
 const LOCATION_TEXT = CAPTAIN
   ? 'يمك كابتن يستخدم موقعك وانت متصل أو بالرحلة، حتى لو التطبيق بالخلفية أو الشاشة مطفية، حتى يوصلك أقرب الطلبات ويتابع الزبون وصولك ويشتغل دليل الطريق.'
   : 'يمك يحتاج موقعك حتى يحدد نقطة الانطلاق ويوصلك أقرب كابتن.';
@@ -90,7 +100,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
 
   scheme: CAPTAIN ? 'yamakcaptain' : 'yamak',
 
-  version: '1.2.0',
+  version: '1.3.0',
 
   orientation: 'portrait',
 
@@ -155,6 +165,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
 
   android: {
     package: ANDROID_PACKAGE,
+
+    ...(GOOGLE_SERVICES ? { googleServicesFile: GOOGLE_SERVICES } : {}),
 
     adaptiveIcon: {
       foregroundImage: CAPTAIN
@@ -250,6 +262,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         enableBackgroundRemoteNotifications: false,
       },
     ],
+
+    // Live Activity on the Lock Screen / Dynamic Island (iOS 16.2+), customer app only
+    ...(LIVE_ACTIVITY ? ['expo-live-activity'] : []),
 
     '@maplibre/maplibre-react-native',
 

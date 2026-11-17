@@ -1,6 +1,6 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
-import { DevSettings, I18nManager, Platform } from 'react-native';
+import { AppState, DevSettings, I18nManager, Platform } from 'react-native';
 import * as Updates from 'expo-updates';
 import type { Lang } from '../lib/types';
 import { KEYS, storage } from '../lib/storage';
@@ -58,10 +58,27 @@ async function ensureDirection(lang: string, allowReload: boolean) {
 
 /** عند فتح التطبيق: يرجع اللغة المحفوظة. يرجع true إذا المستخدم اختار لغة سابقاً */
 export async function initLanguage(): Promise<boolean> {
-  const lang = ((await storage.get(KEYS.lang)) as Lang | null) ?? 'ar';
+  const l = await storage.read(KEYS.lang);
+  const c = await storage.read(KEYS.langChosen);
+  if (!l.ok || !c.ok) {
+    // الآيفون شغّل التطبيق بالخلفية والشاشة مقفولة (الكابتن متصل): ما نغير الاتجاه
+    // ولا نرجّعه لشاشة اختيار اللغة — ونقرا اللغة الصحيحة أول ما يفتح التطبيق
+    const sub = AppState.addEventListener('change', async (s) => {
+      if (s !== 'active') return;
+      const r = await storage.read(KEYS.lang);
+      if (!r.ok) return;
+      sub.remove();
+      if (r.value) await i18n.changeLanguage(r.value);
+    });
+    return true;
+  }
+  const lang = (l.value as Lang | null) ?? 'ar';
   await i18n.changeLanguage(lang);
   await ensureDirection(lang, true);
-  return (await storage.get(KEYS.langChosen)) === '1';
+  // نعيد حفظها بالإعداد الجديد (تتقرا حتى والشاشة مقفولة)
+  if (l.value) await storage.set(KEYS.lang, l.value);
+  if (c.value) await storage.set(KEYS.langChosen, c.value);
+  return c.value === '1';
 }
 
 export async function setLanguage(lang: Lang) {

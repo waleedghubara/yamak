@@ -25,6 +25,7 @@ import { AuthProvider, useAuth } from '../state/auth';
 import { boot } from '../state/boot';
 import { SocketProvider } from '../state/socket';
 import { colors } from '../theme';
+import { InAppNotice } from '../components/InAppNotice';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -62,6 +63,7 @@ export default function RootLayout() {
               <Stack.Screen name="search" options={{ presentation: 'modal' }} />
             </Stack>
             <NetworkBanner />
+            <InAppNotice />
           </SocketProvider>
         </AuthProvider>
       </AppConfigProvider>
@@ -79,7 +81,8 @@ function PushAndDeepLinks() {
   useEffect(() => {
     const sub = Notifications.addNotificationResponseReceivedListener((resp) => {
       const data = resp.notification.request.content.data as Record<string, unknown>;
-      if (typeof data?.ticketId === 'string') router.push(`/support/${data.ticketId}`);
+      if (data?.type === 'broadcast') router.push('/notifications');
+      else if (typeof data?.ticketId === 'string') router.push(`/support/${data.ticketId}`);
       else if (IS_CAPTAIN) router.navigate('/(captain)/home');
       else if (typeof data?.rideId === 'string') router.push(`/ride/${data.rideId}`);
     });

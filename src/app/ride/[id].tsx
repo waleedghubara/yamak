@@ -13,6 +13,8 @@ import { ACTIVE_STATUSES, type Point, type Ride, type Tracking } from '../../lib
 import { useAppConfig } from '../../state/appConfig';
 import { placeBus, setPendingBooking } from '../../state/placeBus';
 import { useSocket, useSocketEvent } from '../../state/socket';
+import { IS_CAPTAIN } from '../../config';
+import { clearTripStatus, showTripStatus } from '../../lib/tripStatus';
 import { colors, fonts, radius, space } from '../../theme';
 
 interface DestPreview {
@@ -29,7 +31,7 @@ export default function RideScreen() {
   const { t } = useTranslation();
   const cfg = useAppConfig();
   const insets = useSafeAreaInsets();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, unavail } = useLocalSearchParams<{ id: string; unavail?: string }>();
   const { reconnects } = useSocket();
   const map = useRef<YMapHandle>(null);
   const fitKey = useRef('');
@@ -108,6 +110,40 @@ export default function RideScreen() {
     else if (toPickup) map.current?.fitTo([ride.pickup, ...(captainLoc ? [captainLoc] : [])], pad);
     else map.current?.fitTo([ride.pickup, ...ride.stops, ride.dropoff, ...(captainLoc ? [captainLoc] : [])], pad);
   }, [ride, captainLoc, insets.top]);
+
+  // وقت الوصول ويا الخط على شاشة القفل والشريط الأعلى (Live Activity بالآيفون، إشعار ثابت بالأندرويد)
+  useEffect(() => {
+    if (!ride || IS_CAPTAIN) return;
+    const st = ride.status;
+    const car = ride.captain ? [ride.captain.carModel, ride.captain.carColor, ride.captain.plateNumber].filter(Boolean).join(' · ') : '';
+    const toPick = st === 'DRIVER_ASSIGNED' || st === 'DRIVER_EN_ROUTE';
+    const tr =
+      tracking && ((toPick && tracking.phase === 'to_pickup') || (st === 'IN_TRIP' && tracking.phase === 'to_destination')) ? tracking : null;
+    const endsAt = tr ? Date.now() + Math.max(1, tr.etaMin) * 60_000 : null;
+    if (st === 'SEARCHING') {
+      showTripStatus({ rideId: ride.id, stage: 'searching', title: t('live.searching'), subtitle: shortAddress(ride.dropoff), endsAt: null });
+    } else if (toPick) {
+      showTripStatus({
+        rideId: ride.id,
+        stage: 'to_pickup',
+        title: tr ? t('live.coming', { min: tr.etaMin }) : t('live.comingNoEta'),
+        subtitle: car,
+        endsAt,
+      });
+    } else if (st === 'DRIVER_ARRIVED') {
+      showTripStatus({ rideId: ride.id, stage: 'arrived', title: t('live.arrived'), subtitle: car, endsAt: null });
+    } else if (st === 'IN_TRIP') {
+      showTripStatus({
+        rideId: ride.id,
+        stage: 'to_destination',
+        title: tr ? t('live.inTrip', { min: tr.etaMin }) : t('live.inTripNoEta'),
+        subtitle: tr ? t('live.remaining', { km: km(tr.remainingKm) }) : (shortAddress(ride.dropoff)),
+        endsAt,
+      });
+    } else {
+      clearTripStatus({ title: t(`status.${st}`), subtitle: '' }, ride.id);
+    }
+  }, [ride, tracking, t]);
 
   if (!ride) return <Loading />;
 
@@ -219,6 +255,11 @@ export default function RideScreen() {
             <T v="caption" center>
               {t('ride.searchingHint')}
             </T>
+            {unavail === '1' ? (
+              <T v="small" center color={colors.warning}>
+                {t('live.searchingUnavailable')}
+              </T>
+            ) : null}
             <TripSummary ride={ride} />
             {isDelivery ? <DeliveryCard ride={ride} /> : null}
             <Button kind="ghost" title={t('ride.cancelRequest')} onPress={quickCancel} />

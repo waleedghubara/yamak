@@ -17,6 +17,7 @@ import { cumulative, progress, type NavRoute } from '../../lib/nav';
 import { getFix, useMyLocation } from '../../lib/location';
 import { iqd, km, ltr, minutes, shortAddress } from '../../lib/format';
 import { DebtMeter } from '../../components/DebtMeter';
+import { balanceColor, creditOf } from '../../lib/balance';
 import { CAPTAIN_ACTIVE, type Offer, type Ride, type Tracking } from '../../lib/types';
 import { useAppConfig } from '../../state/appConfig';
 import { useAuth } from '../../state/auth';
@@ -48,7 +49,9 @@ type Summary = CaptainSummary;
  */
 export default function CaptainHome() {
   const { me } = useAuth();
-  if (!me?.captain) return <Redirect href="/captain/apply" />;
+  // الجلسة انتهت: نرجع لنقطة البداية (تسجيل الدخول)، مو لاستمارة التسجيل ككابتن جديد
+  if (!me) return <Redirect href="/" />;
+  if (!me.captain) return <Redirect href="/captain/apply" />;
   if (me.captain.status !== 'approved') return <CaptainStatus />;
   return <CaptainDashboard />;
 }
@@ -155,8 +158,12 @@ function CaptainDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navPos, nav]);
 
+  const [unread, setUnread] = useState(0);
   const loadSummary = useCallback(() => {
     api<Summary>('/api/captain/summary').then(setSummary).catch(() => {});
+    api<{ unread: number }>('/api/me/notifications')
+      .then((n) => setUnread(n.unread))
+      .catch(() => {});
   }, []);
 
   const loadActive = useCallback(() => {
@@ -445,6 +452,17 @@ function CaptainDashboard() {
       ) : (
       /* الأعلى: حالة الاتصال + ملخص اليوم */
       <View style={[styles.top, { top: insets.top + space.sm }]}>
+        {/* جرس الإشعارات: تبليغات الإدارة للكباتن */}
+        <View style={styles.bell}>
+          <IconButton name={unread ? 'bell-ring' : 'bell-outline'} color={colors.primary} size={42} onPress={() => router.push('/notifications')} />
+          {unread ? (
+            <View style={styles.badge}>
+              <T v="small" color={colors.white} style={{ fontSize: 11, lineHeight: 14 }}>
+                {unread > 9 ? '9+' : unread}
+              </T>
+            </View>
+          ) : null}
+        </View>
         <Pressable
           onPress={() => !ride && !toggling && setOnlineState(!online)}
           style={[styles.status, { backgroundColor: online ? colors.success : colors.text }]}
@@ -458,7 +476,11 @@ function CaptainDashboard() {
           <Row style={styles.stats}>
             <Stat label={t('captain.todayTrips')} value={String(summary.today.trips)} />
             <Stat label={t('captain.todayCash')} value={iqd(summary.today.cash)} />
-            <Stat label={t('captain.owed')} value={iqd(summary.balanceOwed)} danger={debtBlocked} />
+            <Stat
+              label={summary.balanceOwed > 0 ? t('captain.debt.dueToCompany') : t('captain.debt.balanceNow')}
+              value={summary.balanceOwed > 0 ? `-${iqd(summary.balanceOwed)}` : iqd(creditOf(summary.balanceOwed))}
+              color={balanceColor(summary.balanceOwed)}
+            />
           </Row>
         ) : null}
       </View>
@@ -527,7 +549,11 @@ function CaptainDashboard() {
             <Icon name="check-circle" size={56} color={colors.success} />
             <T v="h2">{t('captain.collectCash')}</T>
             <T style={{ fontFamily: fonts.black, fontSize: 38, lineHeight: 54, color: colors.primaryDark }}>{iqd(done.fare)}</T>
-            <T v="caption">{t('captain.newBalance', { amount: iqd(done.balance) })}</T>
+            <T v="caption" color={balanceColor(done.balance)}>
+              {done.balance > 0
+                ? `${t('captain.debt.dueToCompany')}: -${iqd(done.balance)}`
+                : `${t('captain.debt.balanceNow')}: ${iqd(creditOf(done.balance))}`}
+            </T>
             <Button title={t('common.done')} style={{ alignSelf: 'stretch' }} onPress={() => setDone(null)} />
           </View>
         ) : null}
@@ -791,13 +817,13 @@ function DeliveryBox({
   );
 }
 
-function Stat({ label, value, danger }: { label: string; value: string; danger?: boolean }) {
+function Stat({ label, value, danger, color }: { label: string; value: string; danger?: boolean; color?: string }) {
   return (
     <View style={{ flex: 1, alignItems: 'center' }}>
       <T v="small" numberOfLines={1}>
         {label}
       </T>
-      <T v="bodyBold" color={danger ? colors.danger : colors.text} numberOfLines={1}>
+      <T v="bodyBold" color={color ?? (danger ? colors.danger : colors.text)} numberOfLines={1}>
         {value}
       </T>
     </View>
@@ -856,6 +882,19 @@ function CaptainStatus() {
 
 const styles = StyleSheet.create({
   top: { position: 'absolute', left: space.lg, right: space.lg, gap: space.sm },
+  bell: { position: 'absolute', end: 0, top: 0, zIndex: 2 },
+  badge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    backgroundColor: colors.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   status: { alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 22, paddingVertical: 10, borderRadius: radius.pill, ...shadow },
   dot: { width: 10, height: 10, borderRadius: 5 },
   stats: { backgroundColor: colors.white, borderRadius: radius.lg, padding: space.md, ...shadow },
