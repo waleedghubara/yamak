@@ -40,6 +40,8 @@ const IOS_BUNDLE_IDENTIFIER =
 const GOOGLE_SERVICES = existsSync(path.join(__dirname, 'google-services.json')) ? './google-services.json' : undefined;
 // متابعة الرحلة على شاشة قفل الآيفون (Live Activity) — تطبيق الزبون فقط. LIVE_ACTIVITY=0 يطفيها
 const LIVE_ACTIVITY = !CAPTAIN && process.env.LIVE_ACTIVITY !== '0';
+// مشاركة موقع من الواتساب عبر Share Extension (تطبيق الزبون فقط). SHARING_EXTENSION=0 يطفيها لتفادي متطلبات App Groups
+const SHARING_EXTENSION = !CAPTAIN && process.env.SHARING_EXTENSION !== '0';
 const LOCATION_TEXT = CAPTAIN
   ? 'يمك كابتن يستخدم موقعك وانت متصل أو بالرحلة، حتى لو التطبيق بالخلفية أو الشاشة مطفية، حتى يوصلك أقرب الطلبات ويتابع الزبون وصولك ويشتغل دليل الطريق.'
   : 'يمك يحتاج موقعك حتى يحدد نقطة الانطلاق ويوصلك أقرب كابتن.';
@@ -142,9 +144,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
     // «مشاركة» موقع من الواتساب إلى «يمك تكسي» مباشرة (تطبيق الزبون بس)
-    ...(CAPTAIN
-      ? []
-      : [
+    ...(SHARING_EXTENSION
+      ? [
           [
             'expo-sharing',
             {
@@ -152,7 +153,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
               ios: { enabled: true, activationRule: { supportsText: true, supportsWebUrlWithMaxCount: 1 } },
             },
           ] as [string, Record<string, unknown>],
-        ]),
+        ]
+      : []),
     ...(LIVE_ACTIVITY ? ['expo-live-activity'] : []),
     '@maplibre/maplibre-react-native',
     ['expo-build-properties', { android: { usesCleartextTraffic: ALLOW_HTTP } }],
