@@ -37,7 +37,7 @@ export function InAppNotice() {
   const insets = useSafeAreaInsets();
   const patchConfig = usePatchAppConfig();
   const [notice, setNotice] = useState<Notice | null>(null);
-  const slide = useRef(new Animated.Value(-200)).current;
+  const [slide] = useState(() => new Animated.Value(-200));
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const hide = useCallback(() => {
@@ -72,9 +72,13 @@ export function InAppNotice() {
   }, [token, show]);
 
   useEffect(() => {
-    checkInbox();
+    // الفحص الأول بعد الرندر (مو داخل جسم الإيفكت) حتى ما يصير رندر متسلسل
+    const id = setTimeout(checkInbox, 0);
     const sub = AppState.addEventListener('change', (s) => s === 'active' && checkInbox());
-    return () => sub.remove();
+    return () => {
+      clearTimeout(id);
+      sub.remove();
+    };
   }, [checkInbox]);
 
   useEffect(() => () => {

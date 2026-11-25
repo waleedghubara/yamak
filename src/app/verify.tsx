@@ -83,7 +83,7 @@ export default function VerifyScreen() {
                 borderRadius: radius.md,
                 borderWidth: 2,
                 borderColor: code.length === i ? colors.primary : error ? colors.danger : colors.border,
-                backgroundColor: colors.white,
+                backgroundColor: colors.card,
                 alignItems: 'center',
                 justifyContent: 'center',
               }}

@@ -29,7 +29,7 @@ export function DebtMeter({
     const credit = creditOf(balance);
     const c = balanceColor(balance);
     return (
-      <View style={[styles.box, { backgroundColor: colors.white, borderColor: c }]}>
+      <View style={[styles.box, { backgroundColor: colors.card, borderColor: c }]}>
         <Row style={{ justifyContent: 'space-between' }}>
           <Row gap={6} style={{ flex: 1 }}>
             <Icon name="wallet-outline" size={20} color={c} />
@@ -60,7 +60,7 @@ export function DebtMeter({
   const pct = Math.max(0, Math.min(1, balance / Math.max(1, maxDebt)));
   // عليه للشركة: أحمر (أغمق كلما قرب من حد الإيقاف)
   const color = state === 'blocked' ? 'hsl(0, 75%, 28%)' : colors.danger;
-  const bg = state === 'blocked' || state === 'warning' ? colors.dangerSoft : colors.white;
+  const bg = state === 'blocked' || state === 'warning' ? colors.dangerSoft : colors.card;
   const msg =
     state === 'blocked'
       ? t('captain.debt.blockedShort')

@@ -9,9 +9,11 @@ import {
   type ViewStateChangeEvent,
 } from '@maplibre/maplibre-react-native';
 import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { Dimensions, StyleSheet, type NativeSyntheticEvent } from 'react-native';
+import { Dimensions, Linking, Pressable, StyleSheet, type NativeSyntheticEvent } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { useMapStyle } from '../lib/mapStyle';
-import { colors } from '../theme';
+import { colors, fonts, radius } from '../theme';
+import { BottomModal, Icon, ListItem, T } from './ui';
 import { CarIcon, useSmoothVehicle } from './CarIcon';
 import { MarkerView } from './MapPins';
 import type { YMapHandle, YMapProps as Props } from './mapTypes';
@@ -43,7 +45,7 @@ export const YMap = forwardRef<YMapHandle, Props>(function YMap(
   const camera = useRef<CameraRef>(null);
   const mapStyle = useMapStyle();
   // إذا انطلب تحريك الكاميرا قبل ما الخريطة تجهز، نبدأ منه
-  const pending = useRef<{ center: LngLat; zoom: number } | null>(null);
+  const [initialView, setInitialView] = useState<{ center: LngLat; zoom: number } | null>(null);
   // اتجاه الخريطة بوضع الملاحة — السيارة تندار بالفرق حتى تبقى باتجاه الشارع
   const [mapBearing, setMapBearing] = useState(0);
   const lastCenter = useRef<LngLat | null>(null);
@@ -51,26 +53,26 @@ export const YMap = forwardRef<YMapHandle, Props>(function YMap(
   useImperativeHandle(ref, () => ({
     flyTo(p, zoom) {
       if (!camera.current) {
-        pending.current = { center: [p.lng, p.lat], zoom: zoom ?? 16 };
+        setInitialView({ center: [p.lng, p.lat], zoom: zoom ?? 16 });
         return;
       }
       camera.current.easeTo({ center: [p.lng, p.lat], zoom: zoom ?? 16, duration: 600 });
     },
-    follow(p, bearing, zoom = 17) {
+    follow(p, bearing, zoom = 16.5) {
       const center: LngLat = [p.lng, p.lat];
       lastCenter.current = center;
       const h = Dimensions.get('window').height;
+      // تتبع ثنائي الأبعاد: بدون إمالة وبدون دوران الخريطة — السيارة تبقى فوق نص الشاشة
       camera.current?.easeTo({
         center,
         zoom,
-        bearing,
-        pitch: 50,
-        // السيارة تنزل لتحت حتى يبين الطريق اللي كدامه أكثر
-        padding: { top: Math.round(h * 0.42), bottom: Math.round(h * 0.12), left: 0, right: 0 },
+        bearing: 0,
+        pitch: 0,
+        padding: { top: 0, bottom: Math.round(h * 0.18), left: 0, right: 0 },
         duration: 900,
         easing: 'linear',
       });
-      setMapBearing(bearing);
+      setMapBearing(0);
     },
     unfollow() {
       if (lastCenter.current) {
@@ -81,7 +83,7 @@ export const YMap = forwardRef<YMapHandle, Props>(function YMap(
     fitTo(points, padding = { top: 120, bottom: 360, left: 50, right: 50 }) {
       if (!points.length) return;
       if (!camera.current) {
-        pending.current = { center: [points[0].lng, points[0].lat], zoom: 14 };
+        setInitialView({ center: [points[0].lng, points[0].lat], zoom: 14 });
         return;
       }
       if (points.length === 1) {
@@ -108,14 +110,14 @@ export const YMap = forwardRef<YMapHandle, Props>(function YMap(
   const center: LngLat = [initialCenter.lng, initialCenter.lat];
 
   return (
+    <>
     <Map
       style={[StyleSheet.absoluteFill, { backgroundColor: '#EEF0F3' }, style]}
       // رابط (مو JSON) حتى الجهاز يحفظه بكاشه ويفتح فوراً من ثاني مرة
       mapStyle={mapStyle.url}
       onDidFailLoadingMap={mapStyle.onFail}
       logo={false}
-      attribution
-      attributionPosition={{ top: 8, left: 8 }}
+      attribution={false}
       compass={false}
       touchRotate={false}
       touchPitch={false}
@@ -129,7 +131,7 @@ export const YMap = forwardRef<YMapHandle, Props>(function YMap(
         onCenterChanged?.({ lat, lng }, e.nativeEvent.userInteraction);
       }}
     >
-      <Camera ref={camera} initialViewState={pending.current ?? { center, zoom: initialZoom }} />
+      <Camera ref={camera} initialViewState={initialView ?? { center, zoom: initialZoom }} />
 
       {routeShape ? (
         <GeoJSONSource id="route" data={routeShape}>
@@ -161,7 +163,44 @@ export const YMap = forwardRef<YMapHandle, Props>(function YMap(
         />
       ) : null}
     </Map>
+    <MapCredit />
+    </>
   );
+});
+
+/** علامة «يمك تكسي» الصغيرة + زر ⓘ يفتح مصادر بيانات الخريطة (إسناد OSM/OpenFreeMap إلزامي) */
+function MapCredit() {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Pressable onPress={() => setOpen(true)} hitSlop={8} style={creditStyles.badge} accessibilityLabel={t('map.credits')}>
+        <T style={creditStyles.text}>{t('appName')}</T>
+        <Icon name="information-outline" size={12} color={colors.textSoft} />
+      </Pressable>
+      <BottomModal visible={open} onClose={() => setOpen(false)} title={t('map.credits')}>
+        <T v="caption">{t('map.creditsBody')}</T>
+        <ListItem icon="open-in-new" title="OpenStreetMap" subtitle="openstreetmap.org/copyright" onPress={() => Linking.openURL('https://www.openstreetmap.org/copyright')} />
+        <ListItem icon="open-in-new" title="OpenFreeMap" subtitle="openfreemap.org" onPress={() => Linking.openURL('https://openfreemap.org/')} />
+      </BottomModal>
+    </>
+  );
+}
+
+const creditStyles = StyleSheet.create({
+  badge: {
+    position: 'absolute',
+    bottom: 6,
+    start: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(255,255,255,0.86)',
+    borderRadius: radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  text: { fontFamily: fonts.bold, fontSize: 10, lineHeight: 16, color: colors.primaryDark },
 });
 
 /** سيارة الكابتن: تنزلق بين المواقع وتندار باتجاه السير */

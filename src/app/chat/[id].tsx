@@ -69,7 +69,7 @@ export default function ChatScreen() {
                 style={{
                   alignSelf: mine ? 'flex-end' : 'flex-start',
                   maxWidth: '80%',
-                  backgroundColor: mine ? colors.primary : colors.white,
+                  backgroundColor: mine ? colors.primary : colors.card,
                   borderRadius: radius.lg,
                   borderWidth: mine ? 0 : 1,
                   borderColor: colors.border,
@@ -105,7 +105,7 @@ export default function ChatScreen() {
               borderRadius: radius.lg,
               borderWidth: 1,
               borderColor: colors.border,
-              backgroundColor: colors.white,
+              backgroundColor: colors.card,
               paddingHorizontal: space.lg,
               fontFamily: fonts.medium,
               fontSize: 15,

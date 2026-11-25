@@ -14,17 +14,21 @@ import { useEffect, useState } from 'react';
 import { Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NetworkBanner } from '../components/common';
+import { IncomingLocation } from '../components/IncomingLocation';
+import { UpdateScreen, useUpdateRequired } from '../components/UpdateGate';
+import { Welcome } from '../components/Welcome';
 import { IS_CAPTAIN } from '../config';
 import { initLanguage } from '../i18n';
 import { registerForPush } from '../lib/device';
 import { primeLocation } from '../lib/location';
+import { flushQueue, startOfflineSync } from '../lib/offline';
 import { initMapCache } from '../lib/mapStyle';
 import { loadBaseUrl } from '../lib/server';
 import { AppConfigProvider } from '../state/appConfig';
 import { AuthProvider, useAuth } from '../state/auth';
 import { boot } from '../state/boot';
-import { SocketProvider } from '../state/socket';
-import { colors } from '../theme';
+import { SocketProvider, useSocket } from '../state/socket';
+import { colors, isDark } from '../theme';
 import { InAppNotice } from '../components/InAppNotice';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -57,13 +61,13 @@ export default function RootLayout() {
       <AppConfigProvider>
         <AuthProvider>
           <SocketProvider>
-            <StatusBar style="dark" />
+            <StatusBar style={isDark ? 'light' : 'dark'} />
             <PushAndDeepLinks />
-            <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}>
-              <Stack.Screen name="search" options={{ presentation: 'modal' }} />
-            </Stack>
+            <IncomingLocation />
+            <AppRoutes />
             <NetworkBanner />
             <InAppNotice />
+            <WelcomeGate />
           </SocketProvider>
         </AuthProvider>
       </AppConfigProvider>
@@ -71,12 +75,38 @@ export default function RootLayout() {
   );
 }
 
+/** ترحيب قصير فوق كل شي عند أول فتح للتطبيق */
+function WelcomeGate() {
+  const { me } = useAuth();
+  return <Welcome name={me?.user.name} />;
+}
+
+/** التحديث الإجباري يسبق كل شي (الإدارة ترفع أقل إصدار من الإعدادات) */
+function AppRoutes() {
+  const mustUpdate = useUpdateRequired();
+  if (mustUpdate) return <UpdateScreen />;
+  return (
+    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}>
+      <Stack.Screen name="search" options={{ presentation: 'modal' }} />
+    </Stack>
+  );
+}
+
 /** تسجيل الإشعارات بعد الدخول + فتح الرحلة لما المستخدم يضغط على إشعار */
 function PushAndDeepLinks() {
   const { token } = useAuth();
+  const { reconnects } = useSocket();
   useEffect(() => {
     if (token) registerForPush();
   }, [token]);
+
+  // أي إجراء انحفظ وقت انقطاع النت ينرسل أول ما يرجع الاتصال (أو يرجع السوكت)
+  useEffect(() => {
+    if (token) startOfflineSync();
+  }, [token]);
+  useEffect(() => {
+    if (token && reconnects) flushQueue();
+  }, [token, reconnects]);
 
   useEffect(() => {
     const sub = Notifications.addNotificationResponseReceivedListener((resp) => {

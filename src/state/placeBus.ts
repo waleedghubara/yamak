@@ -19,8 +19,8 @@ export const placeBus = {
   },
 };
 
-/** "اطلب نفس الرحلة" / مكان محفوظ: بيانات تنتقل لشاشة الحجز */
-let pendingBooking: { pickup?: Point; dropoff?: Point; stops?: Point[] } | null = null;
+/** "اطلب نفس الرحلة" / مكان محفوظ / كود خصم: بيانات تنتقل لشاشة الحجز */
+let pendingBooking: { pickup?: Point; dropoff?: Point; stops?: Point[]; promo?: string } | null = null;
 export function setPendingBooking(b: typeof pendingBooking) {
   pendingBooking = b;
 }

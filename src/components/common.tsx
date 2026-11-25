@@ -7,6 +7,7 @@ import { api } from '../lib/api';
 import { callPhone, currentPosition, openWhatsApp, showError } from '../lib/device';
 import { iqd, ltr } from '../lib/format';
 import type { Ad, RideCaptain } from '../lib/types';
+import { onQueueChange, pendingCount } from '../lib/offline';
 import { useAppConfig } from '../state/appConfig';
 import { colors, fonts, radius, space } from '../theme';
 import { Avatar, BottomModal, Button, Chip, Icon, IconButton, Input, Rating, Row, T } from './ui';
@@ -16,6 +17,7 @@ export function NetworkBanner() {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const [offline, setOffline] = useState(false);
+  const [pending, setPending] = useState(0);
   useEffect(
     () =>
       NetInfo.addEventListener((s) => {
@@ -23,7 +25,9 @@ export function NetworkBanner() {
       }),
     [],
   );
-  if (!offline) return null;
+  // إجراءات محفوظة تنتظر الاتصال (خطوات رحلة، تقييم، إلغاء)
+  useEffect(() => onQueueChange(() => setPending(pendingCount())), []);
+  if (!offline && !pending) return null;
   return (
     <View
       pointerEvents="none"
@@ -41,9 +45,9 @@ export function NetworkBanner() {
         zIndex: 1000,
       }}
     >
-      <Icon name="wifi-off" size={16} color={colors.white} />
+      <Icon name={offline ? 'wifi-off' : 'cloud-upload-outline'} size={16} color={colors.white} />
       <T v="small" color={colors.white}>
-        {t('net.offline')}
+        {offline ? t('net.offline') : t('offline.pending', { count: pending })}
       </T>
     </View>
   );
@@ -56,21 +60,23 @@ const AD_ROTATE_MS = 5000;
  * مساحة الإعلان أسفل الواجهة — تتغير من لوحة الإدارة.
  * إذا أكثر من إعلان: تتبدل وحدها كل 5 ثواني (ويا نقاط تبين عددها، وتكدر تضغط على النقطة)
  */
-export function AdBanner({ app }: { app: 'customer' | 'captain' }) {
+export function AdBanner({ app, kind = 'banner', height = 84 }: { app: 'customer' | 'captain'; kind?: 'banner' | 'offer'; height?: number }) {
   const [ads, setAds] = useState<Ad[]>([]);
   const [idx, setIdx] = useState(0);
-  const fade = useRef(new Animated.Value(1)).current;
+  const [fade] = useState(() => new Animated.Value(1));
   const idxRef = useRef(0);
-  idxRef.current = idx;
+  useEffect(() => {
+    idxRef.current = idx;
+  }, [idx]);
 
   useEffect(() => {
-    api<Ad[]>('/api/content/ads', { query: { app } })
+    api<Ad[]>('/api/content/ads', { query: { app, kind } })
       .then((list) => {
         setAds(list);
         setIdx(0);
       })
       .catch(() => {});
-  }, [app]);
+  }, [app, kind]);
 
   const goTo = useCallback(
     (next: number) => {
@@ -98,7 +104,7 @@ export function AdBanner({ app }: { app: 'customer' | 'captain' }) {
       <Animated.View style={{ opacity: fade }}>
         <Pressable onPress={open} style={{ borderRadius: radius.md, overflow: 'hidden', backgroundColor: colors.primarySoft }}>
           {ad.imageUrl ? (
-            <Image source={{ uri: ad.imageUrl }} style={{ width: '100%', height: 84 }} resizeMode="cover" accessibilityLabel={ad.title} />
+            <Image source={{ uri: ad.imageUrl }} style={{ width: '100%', height }} resizeMode="cover" accessibilityLabel={ad.title} />
           ) : (
             <Row style={{ padding: space.md }}>
               <Icon name="ticket-percent" color={colors.primary} />

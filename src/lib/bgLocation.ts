@@ -3,6 +3,7 @@ import * as TaskManager from 'expo-task-manager';
 import { AppState } from 'react-native';
 import { colors } from '../theme';
 import { api, getAuthToken } from './api';
+import { makeLocationGate } from './location';
 import { KEYS, storage } from './storage';
 
 /**
@@ -14,19 +15,19 @@ import { KEYS, storage } from './storage';
  */
 export const BG_LOCATION_TASK = 'yamak-captain-location';
 const MIN_SEND_MS = 4000;
-let lastSent = 0;
+/** نفس نبض الواجهة: 4 ثواني متحرك / 15 ثانية واقف */
+const gate = makeLocationGate();
 
 TaskManager.defineTask<{ locations?: Location.LocationObject[] }>(BG_LOCATION_TASK, async ({ data, error }) => {
   if (error || AppState.currentState === 'active') return;
   const l = data?.locations?.[data.locations.length - 1];
   if (!l) return;
-  const now = Date.now();
-  if (now - lastSent < MIN_SEND_MS) return;
-  lastSent = now;
+  if (!gate({ lat: l.coords.latitude, lng: l.coords.longitude })) return;
   // الآيفون يشغّل التطبيق بالخلفية (بعد ما الكابتن يسده من الشاشة) وهذي المهمة تشتغل قبل ما ينقرا التوكن:
   // نقرا التوكن هنا، وإذا ما انقرا ما نرسل — وأبداً ما نطلّع الكابتن من حسابه من الخلفية
   const token = getAuthToken() ?? (await storage.get(KEYS.token));
   if (!token) return;
+  // النت منقطع؟ ما نحفظ المواقع القديمة بالطابور (ما تفيد بعدين) — نرسل آخر واحد بس
   await api('/api/captain/location', {
     headers: { Authorization: `Bearer ${token}` },
     keepSession: true,

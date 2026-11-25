@@ -60,7 +60,7 @@ export default function TicketScreen() {
               style={{
                 alignSelf: item.fromAdmin ? 'flex-start' : 'flex-end',
                 maxWidth: '85%',
-                backgroundColor: item.fromAdmin ? colors.white : colors.primarySoft,
+                backgroundColor: item.fromAdmin ? colors.card : colors.primarySoft,
                 borderColor: colors.border,
                 borderWidth: item.fromAdmin ? 1 : 0,
                 borderRadius: radius.lg,

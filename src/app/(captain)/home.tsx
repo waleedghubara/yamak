@@ -1,21 +1,25 @@
+import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import * as Haptics from 'expo-haptics';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import * as Location from 'expo-location';
 import { Redirect, router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, AppState, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, AppState, Image, Pressable, ScrollView, StyleSheet, Vibration, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AdBanner, ReasonModal, SosButton, SosModal } from '../../components/common';
-import { Avatar, BottomModal, Button, Card, Divider, Icon, IconButton, Row, Screen, Sheet, T } from '../../components/ui';
+import { ReasonModal, SosButton, SosModal } from '../../components/common';
+import { Avatar, BottomModal, Button, Card, Divider, FullModal, Icon, IconButton, ListItem, Row, Screen, Sheet, T, type IconName } from '../../components/ui';
 import { YMap, type MapMarker, type YMapHandle } from '../../components/YMap';
 import { CAPTAIN_LOCATION_INTERVAL_MS, KIRKUK_CENTER } from '../../config';
+import { loadHomeFeed } from '../../lib/home';
+import { openNavApp } from '../../lib/navApp';
+import { getCached, sendOrQueue } from '../../lib/offline';
 import { api, ApiError, fileUrl } from '../../lib/api';
 import { callPhone, currentPosition, errorText, openWhatsApp, requestLocationPermission, showError } from '../../lib/device';
-import { NavHud } from '../../components/NavHud';
-import { cumulative, progress, type NavRoute } from '../../lib/nav';
-import { getFix, useMyLocation } from '../../lib/location';
+import { getFix, makeLocationGate, useMyLocation } from '../../lib/location';
 import { iqd, km, ltr, minutes, shortAddress } from '../../lib/format';
+import { AccountCircle } from '../../components/AccountCircle';
+import { BatteryNotice, useBatteryNotice } from '../../components/BatteryNotice';
 import { DebtMeter } from '../../components/DebtMeter';
 import { balanceColor, creditOf } from '../../lib/balance';
 import { CAPTAIN_ACTIVE, type Offer, type Ride, type Tracking } from '../../lib/types';
@@ -25,6 +29,9 @@ import { KEYS, storage } from '../../lib/storage';
 import { startBackgroundLocation, stopBackgroundLocation } from '../../lib/bgLocation';
 import { useSocket, useSocketEvent } from '../../state/socket';
 import { colors, fonts, radius, shadow, space } from '../../theme';
+
+/** نغمة الطلب الجديد: ثلاث رنّات (6 ثواني) وتسكت — نفس الملف المستعمل برنة إشعار قناة offers */
+const RING = require('../../../assets/yamak_ring.wav');
 
 export interface CaptainSummary {
   today: { trips: number; cash: number; commission: number; discounts: number };
@@ -39,6 +46,15 @@ export interface CaptainSummary {
   rating: number | null;
   totalTrips: number;
   pendingReceipt: { id: string; amount: number; createdAt: string } | null;
+  /** المستحقات: الحد الفعلي ويا السلفة، وهل يكدر ياخذ سلفة الطوارئ */
+  effectiveMaxDebt?: number;
+  advanceAmount?: number;
+  advanceActive?: boolean;
+  canTakeAdvance?: boolean;
+  /** المبلغ المطلوب تسديده كاملاً */
+  payInFull?: number;
+  /** شحن البطاقات مفعّل؟ (وإلا «قريباً») */
+  cardsEnabled?: boolean;
 }
 type Summary = CaptainSummary;
 
@@ -77,98 +93,54 @@ function CaptainDashboard() {
   const [ride, setRide] = useState<Ride | null>(null);
   const [tracking, setTracking] = useState<Tracking | null>(null);
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<{ fare: number; balance: number } | null>(null);
+  const [done, setDone] = useState<{ fare: number; balance: number | null } | null>(null);
   const [modal, setModal] = useState<null | 'cancel' | 'sos'>(null);
+  const [batteryOpen, closeBattery] = useBatteryNotice(online);
+  const [sheetH, setSheetH] = useState(0);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [balanceOpen, setBalanceOpen] = useState(false);
+  const [barH, setBarH] = useState(78);
+  // وجهان منفصلان: استقبال الطلبات، وتفاصيل الرحلة — والتنقل بينهم بزر
+  const [onTrip, setOnTrip] = useState(false);
   const watch = useRef<Location.LocationSubscription | null>(null);
+  const sendGate = useRef(makeLocationGate());
   const onlineRef = useRef(false);
-  // ───── الملاحة داخل التطبيق (بدل Waze) ─────
-  // المسار والمناورات من السيرفر، وموقع دقيق كل ثانية للشاشة بس (الإرسال للسيرفر يبقى كل 4 ثواني)
-  const [navOn, setNavOn] = useState(false);
-  const [nav, setNav] = useState<NavRoute | null>(null);
-  const [navLoading, setNavLoading] = useState(false);
-  const [rerouting, setRerouting] = useState(false);
-  const [navPos, setNavPos] = useState<{ lat: number; lng: number; heading: number | null; speed: number | null } | null>(null);
+  // ───── التتبع المباشر (2D) ─────
+  // الكاميرا تتبع السيارة بنعومة وبدون إمالة. إذا المستخدم حرك الخريطة نوقف المتابعة
+  // لحد ما يضغط «إعادة التموضع». الملاحة بالمناورات تركناها لتطبيقات الملاحة (زر «افتح بتطبيق ملاحة»).
   const [followPaused, setFollowPaused] = useState(false);
-  const navWatch = useRef<Location.LocationSubscription | null>(null);
-  const navFetchedAt = useRef(0);
-  const offRoute = useRef(0);
-  const navCum = useMemo(() => (nav ? cumulative(nav.geometry) : []), [nav]);
-  const prog = useMemo(() => (nav && navPos ? progress(nav, navCum, navPos) : null), [nav, navCum, navPos]);
+  const following = !!ride && !followPaused;
 
-  const fetchNav = useCallback(async (r: Ride, p: { lat: number; lng: number }) => {
-    navFetchedAt.current = Date.now();
-    offRoute.current = 0;
-    const res = await api<NavRoute>(`/api/captain/rides/${r.id}/nav`, { query: { lat: p.lat, lng: p.lng } });
-    setNav(res);
-    return res;
-  }, []);
+  useEffect(() => {
+    if (!following || !pos) return;
+    map.current?.follow(pos, pos.heading ?? 0);
+  }, [following, pos]);
 
-  const stopNav = useCallback(() => {
-    setNavOn(false);
-    setNav(null);
-    setFollowPaused(false);
-    navWatch.current?.remove();
-    navWatch.current = null;
+  // الرحلة خلصت أو انلغت ← نرجع الخريطة لوضعها الطبيعي
+  useEffect(() => {
+    if (ride) return;
     map.current?.unfollow();
-  }, []);
-
-  const startNav = useCallback(
-    async (r: Ride) => {
-      setNavOn(true);
-      setFollowPaused(false);
-      setNavLoading(true);
-      try {
-        if (!navWatch.current) {
-          navWatch.current = await Location.watchPositionAsync(
-            { accuracy: Location.Accuracy.BestForNavigation, timeInterval: 1000, distanceInterval: 2 },
-            (l) => setNavPos({ lat: l.coords.latitude, lng: l.coords.longitude, heading: l.coords.heading ?? null, speed: l.coords.speed ?? null }),
-          );
-        }
-        const p = navPos ?? pos ?? (await currentPosition());
-        if (!p) throw new ApiError(0, 'location_unavailable');
-        await fetchNav(r, p);
-      } catch (err) {
-        showError(err);
-      } finally {
-        setNavLoading(false);
-      }
-    },
-    [fetchNav, navPos, pos],
-  );
-
-  useEffect(() => () => navWatch.current?.remove(), []);
-
-  // الرحلة خلصت أو انلغت ← نطلع من الملاحة
-  useEffect(() => {
-    if (!ride && navOn) stopNav();
-  }, [ride, navOn, stopNav]);
-
-  // كل موقع جديد: الكاميرا تتبع السيارة، وإذا طلع عن الطريق نعيد حساب المسار
-  useEffect(() => {
-    if (!navOn || !nav || !navPos || !prog) return;
-    const moving = (navPos.speed ?? 0) > 2 && navPos.heading != null && navPos.heading >= 0;
-    if (!followPaused) map.current?.follow(navPos, moving ? navPos.heading! : prog.roadBearing);
-    offRoute.current = prog.offRouteM > 50 && !prog.arrived ? offRoute.current + 1 : 0;
-    if (ride && offRoute.current >= 3 && Date.now() - navFetchedAt.current > 8000) {
-      setRerouting(true);
-      fetchNav(ride, navPos)
-        .catch(() => {})
-        .finally(() => setRerouting(false));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [navPos, nav]);
+  }, [ride]);
 
   const [unread, setUnread] = useState(0);
+  const [stale, setStale] = useState(false);
+  // كشف الحساب: ينحفظ محلياً حتى يبين وقت انقطاع النت
   const loadSummary = useCallback(() => {
-    api<Summary>('/api/captain/summary').then(setSummary).catch(() => {});
-    api<{ unread: number }>('/api/me/notifications')
-      .then((n) => setUnread(n.unread))
+    getCached<Summary>('/api/captain/summary', 'captainSummary')
+      .then(({ data, stale }) => {
+        if (data) setSummary(data);
+        setStale(stale);
+      })
       .catch(() => {});
   }, []);
 
+  // الرحلة الفعالة + الإشعارات بطلب واحد (وإذا النت منقطع من اللقطة المحفوظة)
   const loadActive = useCallback(() => {
-    api<Ride | null>('/api/rides/active')
-      .then((r) => setRide(r && CAPTAIN_ACTIVE.includes(r.status) ? r : null))
+    loadHomeFeed()
+      .then(({ feed }) => {
+        setRide(feed.activeRide && CAPTAIN_ACTIVE.includes(feed.activeRide.status) ? feed.activeRide : null);
+        setUnread(feed.unread);
+      })
       .catch(() => {});
   }, []);
 
@@ -196,13 +168,15 @@ function CaptainDashboard() {
           centered.current = true;
           map.current?.flyTo(p, 15);
         }
-        socket?.emit('captain:location', { ...p, accuracy: l.coords.accuracy });
+        // الخريطة تتحدث بكل قراءة، والإرسال كل 4 ثواني متحرك / 15 ثانية واقف
+        if (sendGate.current(p)) socket?.emit('captain:location', { ...p, accuracy: l.coords.accuracy });
       },
     );
     return true;
   }, [socket, t]);
 
   const stopWatch = useCallback(() => {
+    sendGate.current = makeLocationGate();
     watch.current?.remove();
     watch.current = null;
   }, []);
@@ -257,6 +231,13 @@ function CaptainDashboard() {
     if (ride) startWatch();
     else if (!onlineRef.current) stopWatch();
   }, [ride, startWatch, stopWatch]);
+
+  // رحلة جديدة ← يفتح وجه الرحلة، وخلصت ← يرجع لوجه استقبال الطلبات
+  const rideId = ride?.id ?? null;
+  useEffect(() => {
+    const id = setTimeout(() => setOnTrip(!!rideId), 0);
+    return () => clearTimeout(id);
+  }, [rideId]);
 
   const setOnlineState = useCallback(
     async (want: boolean, silent = false) => {
@@ -377,13 +358,25 @@ function CaptainDashboard() {
     setOffer(null);
   };
 
+  /** خطوات الرحلة. بدون إنترنت: تنحفظ وتنرسل أول ما يرجع الاتصال، والكابتن يكمل شغله */
   const step = (path: 'en-route' | 'arrived' | 'start') =>
     act(async () => {
       if (!ride) return;
-      const r = await api<Ride>(`/api/captain/rides/${ride.id}/${path}`, { body: {} });
+      const r = await sendOrQueue<Ride>({
+        id: `${ride.id}:${path}`,
+        path: `/api/captain/rides/${ride.id}/${path}`,
+        method: 'POST',
+        body: {},
+        label: path,
+      });
+      if (!r) {
+        setRide({ ...ride, status: path === 'en-route' ? 'DRIVER_EN_ROUTE' : path === 'arrived' ? 'DRIVER_ARRIVED' : 'IN_TRIP' });
+        Alert.alert('', t('offline.queued'));
+        return;
+      }
       setRide(r);
-      // الملاحة تبدأ وحدها: للزبون بعد «انطلق»، وللوجهة بعد ركوب الزبون
-      if (path === 'en-route' || path === 'start') startNav(r);
+      // المتابعة ترجع تلقائياً بأي خطوة جديدة
+      setFollowPaused(false);
     });
 
   const complete = () => {
@@ -395,7 +388,21 @@ function CaptainDashboard() {
         onPress: () =>
           act(async () => {
             if (!ride) return;
-            const r = await api<{ ride: Ride; balanceOwed: number }>(`/api/captain/rides/${ride.id}/complete`, { body: {} });
+            const r = await sendOrQueue<{ ride: Ride; balanceOwed: number }>({
+              id: `${ride.id}:complete`,
+              path: `/api/captain/rides/${ride.id}/complete`,
+              method: 'POST',
+              body: {},
+              label: 'complete',
+            });
+            if (!r) {
+              // بدون إنترنت: نقفل الرحلة محلياً وننرسلها أول ما يرجع الاتصال
+              setDone({ fare: ride.fare.finalFare, balance: null });
+              setRide(null);
+              setTracking(null);
+              Alert.alert('', t('offline.queued'));
+              return;
+            }
             setDone({ fare: r.ride.fare.finalFare, balance: r.balanceOwed });
             setRide(null);
             setTracking(null);
@@ -427,120 +434,21 @@ function CaptainDashboard() {
   const route = ride && tracking?.rideId === ride.id ? tracking.geometry : null;
   const debtBlocked = summary ? summary.state === 'blocked' || summary.balanceOwed >= summary.maxDebt : false;
 
-  return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <YMap
-        ref={map}
-        initialCenter={start ?? KIRKUK_CENTER}
-        initialZoom={start ? 15 : 13}
-        markers={markers}
-        route={navOn && prog ? prog.ahead : navOn && nav ? nav.geometry : route}
-        vehicle={navOn && navPos ? navPos : pos}
-        onMoveStart={() => navOn && setFollowPaused(true)}
-      />
+  const go = (path: string) => {
+    setMenuOpen(false);
+    router.push(path as never);
+  };
 
-      {navOn && ride ? (
-        <NavHud
-          route={nav}
-          prog={prog}
-          loading={navLoading}
-          rerouting={rerouting}
-          paused={followPaused}
-          onExit={stopNav}
-          onRecenter={() => setFollowPaused(false)}
-        />
-      ) : (
-      /* الأعلى: حالة الاتصال + ملخص اليوم */
-      <View style={[styles.top, { top: insets.top + space.sm }]}>
-        {/* جرس الإشعارات: تبليغات الإدارة للكباتن */}
-        <View style={styles.bell}>
-          <IconButton name={unread ? 'bell-ring' : 'bell-outline'} color={colors.primary} size={42} onPress={() => router.push('/notifications')} />
-          {unread ? (
-            <View style={styles.badge}>
-              <T v="small" color={colors.white} style={{ fontSize: 11, lineHeight: 14 }}>
-                {unread > 9 ? '9+' : unread}
-              </T>
-            </View>
-          ) : null}
-        </View>
-        <Pressable
-          onPress={() => !ride && !toggling && setOnlineState(!online)}
-          style={[styles.status, { backgroundColor: online ? colors.success : colors.text }]}
-        >
-          <View style={[styles.dot, { backgroundColor: online ? '#7CF0B0' : colors.muted }]} />
-          <T v="bodyBold" color={colors.white}>
-            {online ? t('captain.online') : t('captain.offline')}
-          </T>
-        </Pressable>
-        {summary ? (
-          <Row style={styles.stats}>
-            <Stat label={t('captain.todayTrips')} value={String(summary.today.trips)} />
-            <Stat label={t('captain.todayCash')} value={iqd(summary.today.cash)} />
-            <Stat
-              label={summary.balanceOwed > 0 ? t('captain.debt.dueToCompany') : t('captain.debt.balanceNow')}
-              value={summary.balanceOwed > 0 ? `-${iqd(summary.balanceOwed)}` : iqd(creditOf(summary.balanceOwed))}
-              color={balanceColor(summary.balanceOwed)}
-            />
-          </Row>
-        ) : null}
-      </View>
-      )}
+  // النوافذ المشتركة بين الوجهين (طلب جديد، نهاية الرحلة، البطارية، الإلغاء، الطوارئ)
+  const overlays = (
+    <>
+      {/* خطوة إذن البطارية (أندرويد): حتى ما يوقف النظام إرسال الموقع والشاشة مطفية */}
+      <BatteryNotice visible={batteryOpen} onClose={closeBattery} />
 
-      <Sheet scroll style={{ maxHeight: navOn ? '40%' : '58%' }}>
-        <IconButton
-          name="crosshairs-gps"
-          color={colors.primary}
-          onPress={() => (navOn ? setFollowPaused(false) : pos && map.current?.flyTo(pos, 16))}
-          style={styles.recenter}
-        />
-
-        {ride ? (
-          <ActiveRidePanel
-            ride={ride}
-            tracking={tracking?.rideId === ride.id ? tracking : null}
-            busy={busy}
-            onEnRoute={() => step('en-route')}
-            onArrived={() => step('arrived')}
-            onStart={() => step('start')}
-            onComplete={complete}
-            onCancel={() => setModal('cancel')}
-            onSos={() => setModal('sos')}
-            navOn={navOn}
-            onNavToggle={() => (navOn ? stopNav() : startNav(ride))}
-          />
-        ) : (
-          <>
-            {summary && summary.state !== 'ok' ? (
-              <Pressable onPress={() => router.navigate('/(captain)/earnings')}>
-                <DebtMeter balance={summary.balanceOwed} warnAt={summary.warnAt} maxDebt={summary.maxDebt} pendingReceipt={!!summary.pendingReceipt} compact />
-              </Pressable>
-            ) : null}
-            <T v="h2" center>
-              {online ? t('captain.waitingOffers') : t('captain.offlineHint')}
-            </T>
-            {online ? (
-              <T v="caption" center>
-                {t('captain.keepOpen')}
-              </T>
-            ) : null}
-            <Button
-              title={online ? t('captain.goOffline') : t('captain.goOnline')}
-              kind={online ? 'ghost' : 'primary'}
-              icon="power"
-              loading={toggling}
-              disabled={!online && debtBlocked}
-              onPress={() => setOnlineState(!online)}
-            />
-            <AdBanner app="captain" />
-          </>
-        )}
-      </Sheet>
-
-      {/* طلب جديد */}
-      {/* لازم الكابتن يختار قبول أو رفض — الضغط خارج النافذة ما يسكرها */}
-      <BottomModal visible={!!offer} onClose={() => {}}>
+      {/* طلب جديد: شاشة كاملة بنمط المكالمة — رنة واهتزاز وعدّاد، ولازم يختار قبول أو رفض */}
+      <FullModal visible={!!offer}>
         {offer ? <OfferCard offer={offer} busy={busy} onAccept={accept} onDecline={decline} onExpire={() => setOffer(null)} /> : null}
-      </BottomModal>
+      </FullModal>
 
       {/* بعد إنهاء الرحلة: المبلغ نقداً */}
       <BottomModal visible={!!done} onClose={() => setDone(null)}>
@@ -549,8 +457,10 @@ function CaptainDashboard() {
             <Icon name="check-circle" size={56} color={colors.success} />
             <T v="h2">{t('captain.collectCash')}</T>
             <T style={{ fontFamily: fonts.black, fontSize: 38, lineHeight: 54, color: colors.primaryDark }}>{iqd(done.fare)}</T>
-            <T v="caption" color={balanceColor(done.balance)}>
-              {done.balance > 0
+            <T v="caption" color={done.balance == null ? colors.muted : balanceColor(done.balance)}>
+              {done.balance == null
+                ? t('offline.queued')
+                : done.balance > 0
                 ? `${t('captain.debt.dueToCompany')}: -${iqd(done.balance)}`
                 : `${t('captain.debt.balanceNow')}: ${iqd(creditOf(done.balance))}`}
             </T>
@@ -573,7 +483,256 @@ function CaptainDashboard() {
           <SosModal visible={modal === 'sos'} rideId={ride.id} onClose={() => setModal(null)} />
         </>
       ) : null}
+    </>
+  );
+
+  // ───────── وجه الرحلة: خريطة واضحة بالمسار وتتبع السيارة + تفاصيل الرحلة ─────────
+  if (onTrip && ride) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+        <YMap
+          ref={map}
+          initialCenter={pos ?? start ?? KIRKUK_CENTER}
+          initialZoom={15}
+          markers={markers}
+          route={route}
+          vehicle={pos}
+          onMoveStart={() => setFollowPaused(true)}
+        />
+
+        {/* شريط فوق الخريطة: حالة الرحلة + رجوع لوجه استقبال الطلبات */}
+        <View style={[styles.top, { top: insets.top + space.sm }]}>
+          <Pressable onPress={() => setOnTrip(false)} style={styles.tripBar}>
+            <Icon name="chevron-right" flip color={colors.white} />
+            <T v="bodyBold" color={colors.white} style={{ flex: 1 }}>
+              {t(`status.${ride.status}`)}
+            </T>
+            <T v="small" color={colors.primaryMuted}>
+              {t('captain.backHome')}
+            </T>
+          </Pressable>
+        </View>
+
+        {/* إعادة التموضع: فوق اللوحة السفلية مباشرة حتى تبقى الخريطة واضحة والزر ظاهر */}
+        <IconButton
+          name="crosshairs-gps"
+          color={followPaused ? colors.white : colors.primary}
+          bg={followPaused ? colors.primary : colors.card}
+          onPress={() => {
+            setFollowPaused(false);
+            if (pos) map.current?.flyTo(pos, 16);
+          }}
+          style={[styles.recenter, { bottom: sheetH + space.md }]}
+        />
+
+        <Sheet scroll style={{ maxHeight: '55%' }} onLayout={setSheetH}>
+          {stale ? (
+            <Row gap={6} style={{ justifyContent: 'center' }}>
+              <Icon name="wifi-off" size={16} color={colors.warning} />
+              <T v="small" color={colors.warning}>
+                {t('offline.cached')}
+              </T>
+            </Row>
+          ) : null}
+          <ActiveRidePanel
+            ride={ride}
+            tracking={tracking?.rideId === ride.id ? tracking : null}
+            busy={busy}
+            onEnRoute={() => step('en-route')}
+            onArrived={() => step('arrived')}
+            onStart={() => step('start')}
+            onComplete={complete}
+            onCancel={() => setModal('cancel')}
+            onSos={() => setModal('sos')}
+          />
+        </Sheet>
+
+        {overlays}
+      </View>
+    );
+  }
+
+  // ───────── وجه استقبال الطلبات: خريطة بالخلف + الرصيد فوق + شريط التشغيل تحت ─────────
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <YMap
+        ref={map}
+        initialCenter={pos ?? KIRKUK_CENTER}
+        initialZoom={pos ? 15 : 12.5}
+        markers={markers}
+        vehicle={pos}
+        onMoveStart={() => setFollowPaused(true)}
+      />
+
+      {/* فوق: صورتك وتقييمك · الرصيد · قائمة الخيارات */}
+      <View style={[styles.top, { top: insets.top + space.sm }]}>
+        <Row style={{ alignItems: 'flex-start', gap: space.sm }}>
+          <View style={{ alignItems: 'center', gap: 4 }}>
+            <AccountCircle size={56} />
+            {summary?.rating != null ? (
+              <View style={styles.ratePill}>
+                <Icon name="star" size={12} color={colors.warning} />
+                <T v="small" color={colors.primaryDark} style={{ fontFamily: fonts.bold }}>
+                  {summary.rating.toFixed(2)}
+                </T>
+              </View>
+            ) : null}
+          </View>
+
+          <Pressable onPress={() => setBalanceOpen((v) => !v)} style={[styles.balanceCard, { flex: 1 }]}>
+            <Row style={{ justifyContent: 'space-between' }}>
+              <T v="bodyBold" color={summary ? balanceColor(summary.balanceOwed) : colors.text}>
+                {summary ? (summary.balanceOwed > 0 ? `-${iqd(summary.balanceOwed)}` : iqd(creditOf(summary.balanceOwed))) : '—'}
+              </T>
+              <Row gap={4}>
+                <T v="small" color={colors.textSoft}>
+                  {summary && summary.balanceOwed > 0 ? t('captain.debt.dueToCompany') : t('captain.debt.balanceNow')}
+                </T>
+                <Icon name={balanceOpen ? 'chevron-up' : 'chevron-down'} size={16} color={colors.muted} />
+              </Row>
+            </Row>
+            {balanceOpen && summary ? (
+              <>
+                <DebtMeter
+                  balance={summary.balanceOwed}
+                  warnAt={summary.warnAt}
+                  maxDebt={summary.effectiveMaxDebt ?? summary.maxDebt}
+                  pendingReceipt={!!summary.pendingReceipt}
+                  compact
+                />
+                <Pressable onPress={() => router.navigate('/(captain)/earnings')} hitSlop={6}>
+                  <T v="small" center color={colors.primary} style={{ fontFamily: fonts.bold }}>
+                    {t('captain.topUp')}
+                  </T>
+                </Pressable>
+              </>
+            ) : null}
+          </Pressable>
+
+          <IconButton name="menu" color={colors.primary} size={48} onPress={() => setMenuOpen(true)} />
+        </Row>
+
+        {/* الإشعارات: عدد الجديد + فتح الصندوق */}
+        <Row style={{ justifyContent: 'flex-end', gap: space.sm }}>
+          {unread ? (
+            <Pressable onPress={() => router.push('/notifications')} style={styles.notifPill}>
+              <T v="small" color={colors.text} numberOfLines={1}>
+                {t('captain.unreadNotices', { count: unread })}
+              </T>
+            </Pressable>
+          ) : null}
+          <View>
+            <IconButton name={unread ? 'email' : 'email-outline'} color={colors.primary} size={48} onPress={() => router.push('/notifications')} />
+            {unread ? (
+              <View style={styles.badge}>
+                <T v="small" color={colors.white} style={{ fontSize: 11, lineHeight: 14 }}>
+                  {unread > 9 ? '9+' : unread}
+                </T>
+              </View>
+            ) : null}
+          </View>
+        </Row>
+
+        {stale ? (
+          <Row style={styles.notice}>
+            <Icon name="wifi-off" color={colors.warning} />
+            <T v="small" color={colors.textSoft} style={{ flex: 1 }}>
+              {t('offline.cached')}
+            </T>
+          </Row>
+        ) : null}
+      </View>
+
+      {/* رحلة شغالة: بانر يرجعه لتفاصيلها */}
+      {ride ? (
+        <Pressable onPress={() => setOnTrip(true)} style={[styles.tripBanner, styles.floatRow, { bottom: barH + space.md }]}>
+          <Icon name="car-clock" color={colors.white} />
+          <View style={{ flex: 1 }}>
+            <T v="bodyBold" color={colors.white}>
+              {t('home.activeRide')}
+            </T>
+            <T v="small" color={colors.primaryMuted}>
+              {t(`status.${ride.status}`)}
+            </T>
+          </View>
+          <T v="bodyBold" color={colors.white}>
+            {t('home.open')}
+          </T>
+        </Pressable>
+      ) : (
+        <>
+          {/* تنبيه: لازم يضغط الزر حتى تجيه طلبات */}
+          {!online && !toggling ? (
+            <View style={[styles.hint, { bottom: barH + space.md }]}>
+              <T v="small" center color={colors.white}>
+                {t('captain.pressToGoOnline')}
+              </T>
+            </View>
+          ) : null}
+          {/* إعادة التموضع */}
+          <IconButton
+            name="crosshairs-gps"
+            color={followPaused ? colors.white : colors.primary}
+            bg={followPaused ? colors.primary : colors.card}
+            size={52}
+            onPress={() => {
+              setFollowPaused(false);
+              if (pos) map.current?.flyTo(pos, 16);
+            }}
+            style={[styles.recenterStart, { bottom: barH + space.md }]}
+          />
+        </>
+      )}
+
+      {/* الشريط السفلي: مساعدة · تشغيل/إيقاف الاستقبال · المكافآت */}
+      <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, space.sm) }]} onLayout={(e) => setBarH(e.nativeEvent.layout.height)}>
+        <BarItem icon="headset" label={t('captain.help')} onPress={() => openWhatsApp(cfg.captainSupportPhone ?? cfg.supportPhone, t('captain.helpText'))} />
+        <Pressable
+          disabled={!!ride || toggling || (!online && debtBlocked)}
+          onPress={() => setOnlineState(!online)}
+          style={[styles.toggle, { backgroundColor: online ? colors.primary : colors.border, opacity: ride ? 0.5 : 1 }]}
+        >
+          <View style={styles.toggleKnob}>
+            <Icon name="power" size={20} color={online ? colors.primary : colors.muted} />
+          </View>
+          <T v="h3" color={online ? colors.white : colors.textSoft}>
+            {online ? t('captain.open') : t('captain.closed')}
+          </T>
+        </Pressable>
+        <BarItem icon="trophy-outline" label={t('captain.rewards.title')} onPress={() => router.push('/captain/rewards')} />
+      </View>
+
+      {/* الخيارات */}
+      <BottomModal visible={menuOpen} onClose={() => setMenuOpen(false)} title={t('captain.options')}>
+        <Row gap={space.sm}>
+          <CaptainTile icon="history" label={t('more.myRides')} onPress={() => go('/rides')} />
+          <CaptainTile icon="account" label={t('account.title')} onPress={() => go('/(captain)/account')} />
+          <CaptainTile icon="wallet-outline" label={t('captain.balance')} onPress={() => go('/(captain)/earnings')} />
+        </Row>
+        <Divider />
+        <ListItem
+          icon="account-group"
+          title={t('khatti.title')}
+          onPress={() => (cfg.khattiEnabled === false ? Alert.alert(t('common.comingSoon'), t('common.comingSoonBody')) : go('/khatti'))}
+        />
+        <ListItem icon="package-variant-closed" title={t('captain.requests')} onPress={() => Alert.alert(t('common.comingSoon'), t('common.comingSoonBody'))} />
+        <ListItem icon="information-outline" title={t('about.title')} onPress={() => go('/about')} />
+      </BottomModal>
+
+      {overlays}
     </View>
+  );
+}
+
+/** عنصر بالشريط السفلي (مساعدة / المكافآت) */
+function BarItem({ icon, label, onPress }: { icon: IconName; label: string; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} style={styles.barItem} hitSlop={6}>
+      <Icon name={icon} size={24} color={colors.primary} />
+      <T v="small" color={colors.textSoft} numberOfLines={1}>
+        {label}
+      </T>
+    </Pressable>
   );
 }
 
@@ -590,11 +749,28 @@ function OfferCard({ offer, busy, onAccept, onDecline, onExpire }: { offer: Offe
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [offer.rideId]);
+
+  // رنة الطلب: ثلاث رنّات واهتزاز ثلاث مرات وبعدها تسكت (وتوقف فوراً بالقبول أو الرفض)
+  useEffect(() => {
+    // تشتغل حتى والجهاز على الصامت، وتخفض صوت التطبيقات الثانية بدل ما توقفها
+    setAudioModeAsync({ playsInSilentMode: true, interruptionMode: 'duckOthers' }).catch(() => {});
+    const ring = createAudioPlayer(RING);
+    ring.play();
+    Vibration.vibrate([0, 600, 1400, 600, 1400, 600]);
+    return () => {
+      Vibration.cancel();
+      ring.remove();
+    };
+  }, [offer.rideId]);
   return (
     <View style={{ gap: space.md }}>
       <Row style={{ justifyContent: 'space-between' }}>
         <Row gap={6} style={{ flex: 1 }}>
-          {offer.serviceType === 'delivery' ? <Icon name="package-variant-closed" color={colors.warning} size={26} /> : null}
+          <Icon
+            name={offer.serviceType === 'delivery' ? 'package-variant-closed' : 'phone-in-talk'}
+            color={offer.serviceType === 'delivery' ? colors.warning : colors.primary}
+            size={26}
+          />
           <T v="h2">{offer.serviceType === 'delivery' ? t('captain.newDelivery') : t('captain.newRequest')}</T>
           {offer.number ? <T v="caption">#{offer.number}</T> : null}
         </Row>
@@ -607,6 +783,12 @@ function OfferCard({ offer, busy, onAccept, onDecline, onExpire }: { offer: Offe
       <View style={styles.fareBig}>
         <T v="caption">{t('captain.fareCash')}</T>
         <T style={{ fontFamily: fonts.black, fontSize: 34, lineHeight: 48, color: colors.primaryDark }}>{iqd(offer.fare)}</T>
+        {/* كود خصم: الزبون يدفع أقل والشركة تعوّضك الفرق */}
+        {offer.discount ? (
+          <T v="small" color={colors.success}>
+            {t('captain.offerDiscount', { amount: iqd(offer.discount) })}
+          </T>
+        ) : null}
       </View>
       <Row style={{ justifyContent: 'space-between' }}>
         <T v="bodyBold" color={colors.primary}>
@@ -658,8 +840,6 @@ function ActiveRidePanel({
   onComplete,
   onCancel,
   onSos,
-  navOn,
-  onNavToggle,
 }: {
   ride: Ride;
   tracking: Tracking | null;
@@ -670,8 +850,6 @@ function ActiveRidePanel({
   onComplete: () => void;
   onCancel: () => void;
   onSos: () => void;
-  navOn: boolean;
-  onNavToggle: () => void;
 }) {
   const { t } = useTranslation();
   const s = ride.status;
@@ -684,14 +862,18 @@ function ActiveRidePanel({
           <T v="h3">{isDelivery ? t(`captain.deliveryStatus.${s}`, { defaultValue: t(`status.${s}`) }) : t(`status.${s}`)}</T>
           {ride.number ? <T v="small">#{ride.number}</T> : null}
         </View>
-        {/* الملاحة داخل التطبيق: للزبون قبل الركوب، وللوجهة بعد الركوب */}
-        <Pressable onPress={onNavToggle} style={[styles.navPill, navOn && { backgroundColor: colors.text }]} hitSlop={6}>
-          <Icon name={navOn ? 'close' : 'navigation-variant'} size={20} color={colors.white} />
-          <T style={styles.navPillText}>{navOn ? t('nav.stop') : inTrip ? t('nav.toDropoff') : t('nav.toPickup')}</T>
+        {/* يفتح المسار بتطبيق ملاحة (المستخدم يختار التطبيق كل مرة) */}
+        <Pressable
+          onPress={() => openNavApp(inTrip ? ride.dropoff : ride.pickup, inTrip ? t('nav.toDropoff') : t('nav.toPickup'))}
+          style={styles.navPill}
+          hitSlop={6}
+        >
+          <Icon name="navigation-variant" size={20} color={colors.white} />
+          <T style={styles.navPillText}>{inTrip ? t('nav.toDropoff') : t('nav.toPickup')}</T>
         </Pressable>
         <SosButton onTrigger={onSos} />
       </Row>
-      {tracking && !navOn ? (
+      {tracking ? (
         <T v="caption">
           {km(tracking.remainingKm)} · {minutes(tracking.etaMin)}
         </T>
@@ -817,18 +999,6 @@ function DeliveryBox({
   );
 }
 
-function Stat({ label, value, danger, color }: { label: string; value: string; danger?: boolean; color?: string }) {
-  return (
-    <View style={{ flex: 1, alignItems: 'center' }}>
-      <T v="small" numberOfLines={1}>
-        {label}
-      </T>
-      <T v="bodyBold" color={color ?? (danger ? colors.danger : colors.text)} numberOfLines={1}>
-        {value}
-      </T>
-    </View>
-  );
-}
 
 /** الكابتن قبل الموافقة: قيد المراجعة / مرفوض / موقوف */
 function CaptainStatus() {
@@ -880,9 +1050,37 @@ function CaptainStatus() {
   );
 }
 
+function CaptainTile({ icon, label, soon, onPress }: { icon: IconName; label: string; soon?: boolean; onPress: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.capTile, pressed && { opacity: 0.85 }]}>
+      <Icon name={icon} size={24} color={colors.primary} />
+      <T v="small" numberOfLines={1} style={{ fontFamily: fonts.bold }}>
+        {label}
+      </T>
+      {soon ? (
+        <View style={styles.capSoon}>
+          <T style={{ fontFamily: fonts.bold, fontSize: 9, color: colors.primaryDark, lineHeight: 14 }}>{t('common.comingSoon')}</T>
+        </View>
+      ) : null}
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
+  capTile: {
+    flex: 1,
+    height: 76,
+    borderRadius: radius.lg,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  capSoon: { position: 'absolute', top: 6, end: 6, backgroundColor: colors.primarySoft, borderRadius: 6, paddingHorizontal: 5 },
   top: { position: 'absolute', left: space.lg, right: space.lg, gap: space.sm },
-  bell: { position: 'absolute', end: 0, top: 0, zIndex: 2 },
   badge: {
     position: 'absolute',
     top: -2,
@@ -895,10 +1093,73 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  status: { alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 22, paddingVertical: 10, borderRadius: radius.pill, ...shadow },
   dot: { width: 10, height: 10, borderRadius: 5 },
-  stats: { backgroundColor: colors.white, borderRadius: radius.lg, padding: space.md, ...shadow },
-  recenter: { position: 'absolute', top: -60, end: space.lg },
+  stats: { backgroundColor: colors.card, borderRadius: radius.lg, padding: space.md, ...shadow },
+  recenter: { position: 'absolute', end: space.lg, zIndex: 2, ...shadow },
+  tripBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    backgroundColor: colors.primary,
+    borderRadius: radius.pill,
+    paddingHorizontal: space.md,
+    paddingVertical: 10,
+    ...shadow,
+  },
+  tripBanner: { flexDirection: 'row', alignItems: 'center', gap: space.md, backgroundColor: colors.primary, borderRadius: radius.md, padding: space.md },
+  floatRow: { position: 'absolute', start: space.lg, end: space.lg, ...shadow },
+  ratePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: colors.card,
+    borderRadius: radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 2,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+  },
+  balanceCard: { gap: 6, backgroundColor: colors.card, borderRadius: radius.md, padding: space.md, ...shadow },
+  notifPill: { flex: 1, backgroundColor: colors.card, borderRadius: radius.pill, paddingHorizontal: space.md, paddingVertical: 8, ...shadow },
+  hint: { position: 'absolute', start: space.lg, end: space.lg, backgroundColor: colors.primary, borderRadius: radius.pill, paddingVertical: 10, ...shadow },
+  recenterStart: { position: 'absolute', start: space.lg, zIndex: 2, ...shadow },
+  bar: {
+    position: 'absolute',
+    start: 0,
+    end: 0,
+    bottom: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.sm,
+    paddingHorizontal: space.lg,
+    paddingTop: space.sm,
+    backgroundColor: colors.card,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  barItem: { alignItems: 'center', gap: 2, width: 76 },
+  toggle: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space.sm,
+    height: 54,
+    borderRadius: radius.pill,
+  },
+  toggleKnob: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.white },
+  notice: { gap: space.sm, padding: space.md, borderRadius: radius.md, backgroundColor: colors.warningSoft },
+  onlineCard: {
+    gap: space.sm,
+    padding: space.lg,
+    borderRadius: radius.lg,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    ...shadow,
+    shadowOpacity: 0.06,
+  },
   warn: { backgroundColor: colors.dangerSoft, borderRadius: radius.md, padding: space.md },
   timer: { backgroundColor: colors.danger, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 4 },
   fareBig: { alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: radius.lg, padding: space.md },

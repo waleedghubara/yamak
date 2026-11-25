@@ -60,6 +60,15 @@ export async function ensureNotificationChannels() {
     vibrationPattern: [0, 250, 250, 250],
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
   });
+  // الطلب الجديد: أعلى أولوية + رنة واهتزاز قوي حتى يوصل والتطبيق مسكّر
+  await Notifications.setNotificationChannelAsync('offers', {
+    name: i18n.t('captain.offersChannel'),
+    importance: Notifications.AndroidImportance.MAX,
+    sound: 'yamak_ring.wav',
+    vibrationPattern: [0, 600, 1400, 600, 1400, 600],
+    bypassDnd: true,
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+  });
   await Notifications.setNotificationChannelAsync('news', {
     name: i18n.t('notifications.title'),
     importance: Notifications.AndroidImportance.HIGH,

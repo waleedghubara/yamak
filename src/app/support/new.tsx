@@ -12,15 +12,16 @@ import { space } from '../../theme';
 export default function NewTicket() {
   const { t } = useTranslation();
   const cfg = useAppConfig();
-  const { rideId } = useLocalSearchParams<{ rideId?: string }>();
-  const [topic, setTopic] = useState<string>(rideId ? 'ride_issue' : '');
+  const { rideId, khattiId } = useLocalSearchParams<{ rideId?: string; khattiId?: string }>();
+  const [topic, setTopic] = useState<string>(rideId || khattiId ? 'ride_issue' : '');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
 
   const send = async () => {
     setBusy(true);
     try {
-      const r = await api<{ id: string }>('/api/support/tickets', { body: { topic, message: message.trim(), rideId: rideId || null } });
+      const text = khattiId ? `${message.trim()}\n\n${t('khatti.lineCode')}: ${khattiId}` : message.trim();
+      const r = await api<{ id: string }>('/api/support/tickets', { body: { topic, message: text, rideId: rideId || null } });
       Alert.alert('', t('support.sent'));
       router.replace(`/support/${r.id}`);
     } catch (err) {
@@ -36,6 +37,7 @@ export default function NewTicket() {
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.lg }} keyboardShouldPersistTaps="handled">
           {rideId ? <Pill label={t('support.rideLinked', { id: rideId.slice(0, 8) })} /> : null}
+          {khattiId ? <Pill label={`${t('khatti.lineCode')}: ${khattiId.slice(0, 8)}`} /> : null}
           <T v="caption">{t('support.topic')}</T>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
             {cfg.lists.supportTopics.map((k) => (

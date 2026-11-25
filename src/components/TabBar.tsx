@@ -4,7 +4,7 @@ import { colors, fonts } from '../theme';
 import { Icon, type IconName } from './ui';
 
 /** شريط التبويبات السفلي بستايل يمك */
-export function YamakTabs({ tabs }: { tabs: { name: string; title: string; icon: IconName; iconActive: IconName }[] }) {
+export function YamakTabs({ tabs }: { tabs: { name: string; title: string; icon: IconName; iconActive: IconName; hideBar?: boolean }[] }) {
   const { t } = useTranslation();
   return (
     <Tabs
@@ -23,6 +23,8 @@ export function YamakTabs({ tabs }: { tabs: { name: string; title: string; icon:
           options={{
             title: t(tab.title),
             tabBarIcon: ({ focused, color }) => <Icon name={focused ? tab.iconActive : tab.icon} color={color as string} size={24} />,
+            // شاشة إلها شريط سفلي خاص بيها (شاشة الكابتن الرئيسية)
+            ...(tab.hideBar ? { tabBarStyle: { display: 'none' as const } } : null),
           }}
         />
       ))}

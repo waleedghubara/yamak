@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Alert, KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
 import { Avatar, Button, Chip, Input, Loading, Screen, Stars, T } from '../../components/ui';
 import { api } from '../../lib/api';
+import { sendOrQueue } from '../../lib/offline';
 import { showError } from '../../lib/device';
 import type { Ride } from '../../lib/types';
 import { useAppConfig } from '../../state/appConfig';
@@ -29,7 +30,13 @@ export default function RateScreen() {
   const submit = async () => {
     setBusy(true);
     try {
-      await api(`/api/rides/${id}/rate`, { body: { stars, tags, comment: comment.trim() || null } });
+      await sendOrQueue({
+        id: `${id}:rate`,
+        path: `/api/rides/${id}/rate`,
+        method: 'POST',
+        body: { stars, tags, comment: comment.trim() || null },
+        label: 'rate',
+      });
       Alert.alert('', t('rate.thanks'));
       done();
     } catch (err) {

@@ -76,7 +76,7 @@ export default function LoginScreen() {
               direction: 'ltr',
               borderWidth: 1,
               borderColor: error ? colors.danger : colors.border,
-              backgroundColor: colors.white,
+              backgroundColor: colors.card,
               borderRadius: radius.md,
               paddingHorizontal: space.lg,
               minHeight: 58,

@@ -72,7 +72,7 @@ export default function BookScreen() {
   const [quoting, setQuoting] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
   const [category, setCategory] = useState<string>('taxi');
-  const [promo, setPromo] = useState<string | null>(null);
+  const [promo, setPromo] = useState<string | null>(pending?.promo ?? null);
   const [promoInput, setPromoInput] = useState('');
   const [promoOpen, setPromoOpen] = useState(false);
   const [ordering, setOrdering] = useState(false);
@@ -225,8 +225,11 @@ export default function BookScreen() {
     }
   }, [pickup, dropoff, stop, roundTrip, promo, isDelivery]);
 
+  // طلب السعر بعد الرندر مباشرة (مو داخل جسم الإيفكت) حتى ما يصير رندر متسلسل
   useEffect(() => {
-    if (step === 'details') fetchQuote();
+    if (step !== 'details') return;
+    const id = setTimeout(fetchQuote, 0);
+    return () => clearTimeout(id);
   }, [step, fetchQuote]);
 
   useEffect(() => {
@@ -443,45 +446,33 @@ export default function BookScreen() {
               </View>
             ) : quote ? (
               <>
-                {!isDelivery ? <T v="small">{t('book.chooseCategory')}</T> : null}
-                <Row gap={space.sm}>
-                  {quote.options.map((o) => {
-                    const sel = o.category === category;
-                    // فئة غير متوفرة (ماكو كابتن، أو كابتنها بعيد وسعرها يطلع أعلى): ما نعرض سعرها وما تنختار
-                    const off = !o.available && !isDelivery;
-                    const canPick = !off || noneAvailable;
-                    return (
-                      <Pressable
-                        key={o.category}
-                        disabled={!canPick}
-                        onPress={() => setCategory(o.category)}
-                        style={[styles.cat, sel && styles.catSel, !canPick && { opacity: 0.55 }]}
-                      >
-                        <Icon
-                          name={isDelivery ? 'package-variant-closed' : o.category === 'private' ? 'car-side' : 'taxi'}
-                          size={28}
-                          color={sel ? colors.white : colors.primary}
-                        />
-                        <T v="bodyBold" color={sel ? colors.white : colors.text}>
-                          {localName(o.name)}
+                {/* كارت واحد: «أجرة» و«خصوصي» بنفس السعر، فدمجناهم بخيار واحد */}
+                {(() => {
+                  const o = quote.options.find((x) => x.category === category) ?? quote.options[0];
+                  if (!o) return null;
+                  const off = !o.available && !isDelivery;
+                  return (
+                    <View style={[styles.cat, styles.catSel, styles.catWide]}>
+                      <Icon name={isDelivery ? 'package-variant-closed' : 'car'} size={28} color={colors.white} />
+                      <T v="bodyBold" color={colors.white}>
+                        {isDelivery ? localName(o.name) : t('book.car')}
+                      </T>
+                      <T v="small" color={colors.primaryMuted}>
+                        {o.available && o.driverEtaMin ? t('book.arrivesIn', { min: o.driverEtaMin }) : t('book.unavailable')}
+                      </T>
+                      {!off && o.discount > 0 ? (
+                        <T v="small" color={colors.primaryMuted} style={{ textDecorationLine: 'line-through' }}>
+                          {iqd(o.fareBeforeDiscount)}
                         </T>
-                        <T v="small" color={sel ? colors.primaryMuted : colors.muted}>
-                          {o.available && o.driverEtaMin ? t('book.arrivesIn', { min: o.driverEtaMin }) : t('book.unavailable')}
+                      ) : null}
+                      {off ? null : (
+                        <T style={{ fontFamily: fonts.heavy, fontSize: 18 }} color={colors.white}>
+                          {iqd(o.finalFare)}
                         </T>
-                        {!off && o.discount > 0 ? (
-                          <T v="small" color={sel ? colors.primaryMuted : colors.muted} style={{ textDecorationLine: 'line-through' }}>
-                            {iqd(o.fareBeforeDiscount)}
-                          </T>
-                        ) : null}
-                        {off ? null : (
-                          <T style={{ fontFamily: fonts.heavy, fontSize: 16 }} color={sel ? colors.white : colors.primaryDark}>
-                            {iqd(o.finalFare)}
-                          </T>
-                        )}
-                      </Pressable>
-                    );
-                  })}
-                </Row>
+                      )}
+                    </View>
+                  );
+                })()}
 
                 {noneAvailable ? (
                   <T v="small" center color={colors.warning}>
@@ -761,7 +752,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: space.lg,
     right: space.lg,
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
     borderRadius: radius.lg,
     padding: space.md,
     gap: space.sm,
@@ -792,9 +783,10 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: 1.5,
     borderColor: colors.border,
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
   },
   catSel: { backgroundColor: colors.primary, borderColor: colors.primary },
+  catWide: { alignSelf: 'stretch' },
   summary: { backgroundColor: colors.bg, borderRadius: radius.md, paddingVertical: space.md },
   vline: { width: 1, alignSelf: 'stretch', backgroundColor: colors.border },
 });

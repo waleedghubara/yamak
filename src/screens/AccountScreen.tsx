@@ -2,7 +2,9 @@ import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, Linking, Pressable, ScrollView, View } from 'react-native';
+import { Alert, DevSettings, Linking, Platform, Pressable, ScrollView, View } from 'react-native';
+import * as Updates from 'expo-updates';
+import { BatteryNotice } from '../components/BatteryNotice';
 import { Avatar, BottomModal, Card, Icon, Input, ListItem, Row, Screen, T, Button } from '../components/ui';
 import { IS_CAPTAIN } from '../config';
 import { currentLang, LANGS, setLanguage } from '../i18n';
@@ -14,7 +16,7 @@ import { isTriple } from '../lib/profile';
 import type { Me } from '../lib/types';
 import { useAppConfig } from '../state/appConfig';
 import { useAuth } from '../state/auth';
-import { colors, radius, space } from '../theme';
+import { colors, isDark, radius, setThemeMode, space, themeMode, type ThemeMode } from '../theme';
 
 /** حسابي: الاسم، الهاتف، الصورة، اللغة، الدعم، الشروط، الخصوصية، تسجيل الخروج */
 export default function AccountScreen() {
@@ -24,6 +26,8 @@ export default function AccountScreen() {
   const [editName, setEditName] = useState(false);
   const [name, setName] = useState(me?.user.name ?? '');
   const [langOpen, setLangOpen] = useState(false);
+  const [batteryOpen, setBatteryOpen] = useState(false);
+  const [themeOpen, setThemeOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const saveName = async () => {
@@ -95,6 +99,20 @@ export default function AccountScreen() {
     ]);
 
   const langLabel = LANGS.find((l) => l.code === currentLang())?.label;
+  const themeLabel = t(`account.theme.${themeMode}`);
+
+  const changeTheme = async (mode: ThemeMode) => {
+    setThemeOpen(false);
+    if (mode === themeMode) return;
+    const needsReload = setThemeMode(mode);
+    if (!needsReload) return;
+    // نفس أسلوب تغيير اللغة: إعادة تشغيل سريعة حتى يتطبق على كل الشاشات
+    try {
+      await Updates.reloadAsync();
+    } catch {
+      DevSettings.reload();
+    }
+  };
 
   return (
     <Screen edges={['top']}>
@@ -124,6 +142,12 @@ export default function AccountScreen() {
 
         <Card style={{ padding: space.sm }}>
           <ListItem icon="web" title={t('account.language')} subtitle={langLabel} onPress={() => setLangOpen(true)} />
+          <ListItem
+            icon={isDark ? 'weather-night' : 'white-balance-sunny'}
+            title={t('account.theme.title')}
+            subtitle={themeLabel}
+            onPress={() => setThemeOpen(true)}
+          />
           {!IS_CAPTAIN ? (
             <>
               <ListItem icon="bookmark-outline" title={t('places.title')} onPress={() => router.navigate('/(customer)/places')} />
@@ -138,7 +162,12 @@ export default function AccountScreen() {
               <ListItem icon="ticket-percent" title={t('account.discounts')} subtitle={t('account.discountsHint')} />
             </>
           ) : (
-            <ListItem icon="cash" title={t('captain.earnings.title')} onPress={() => router.navigate('/(captain)/earnings')} />
+            <>
+              <ListItem icon="cash" title={t('captain.earnings.title')} onPress={() => router.navigate('/(captain)/earnings')} />
+              {Platform.OS === 'android' ? (
+                <ListItem icon="battery-alert-variant-outline" title={t('battery.title')} onPress={() => setBatteryOpen(true)} />
+              ) : null}
+            </>
           )}
           <ListItem icon="bell-outline" title={t('notifications.title')} onPress={() => router.push('/notifications')} />
           <ListItem icon="headset" title={t('support.title')} onPress={() => router.push('/support')} />
@@ -147,6 +176,7 @@ export default function AccountScreen() {
         <Card style={{ padding: space.sm }}>
           <ListItem icon="file-document-outline" title={t('account.terms')} onPress={() => cfg.termsUrl && Linking.openURL(cfg.termsUrl)} />
           <ListItem icon="shield-lock-outline" title={t('account.privacy')} onPress={() => cfg.privacyUrl && Linking.openURL(cfg.privacyUrl)} />
+          <ListItem icon="information-outline" title={t('about.title')} onPress={() => router.push('/about')} />
           <ListItem icon="logout" title={t('account.logout')} danger onPress={logout} right={<View />} />
         </Card>
 
@@ -161,6 +191,8 @@ export default function AccountScreen() {
         </T>
       </ScrollView>
 
+      <BatteryNotice visible={batteryOpen} onClose={() => setBatteryOpen(false)} />
+
       <BottomModal visible={langOpen} onClose={() => setLangOpen(false)} title={t('account.language')}>
         <T v="caption">{t('account.languageReload')}</T>
         {LANGS.map((l) => (
@@ -169,6 +201,18 @@ export default function AccountScreen() {
             title={l.label}
             onPress={() => changeLang(l.code)}
             right={l.code === currentLang() ? <Icon name="check-circle" color={colors.primary} /> : <View />}
+          />
+        ))}
+      </BottomModal>
+
+      <BottomModal visible={themeOpen} onClose={() => setThemeOpen(false)} title={t('account.theme.title')}>
+        {(['system', 'light', 'dark'] as ThemeMode[]).map((m) => (
+          <ListItem
+            key={m}
+            icon={m === 'system' ? 'cellphone-cog' : m === 'light' ? 'white-balance-sunny' : 'weather-night'}
+            title={t(`account.theme.${m}`)}
+            onPress={() => changeTheme(m)}
+            right={m === themeMode ? <Icon name="check-circle" color={colors.primary} /> : <View />}
           />
         ))}
       </BottomModal>

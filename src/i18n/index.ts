@@ -1,4 +1,4 @@
-import i18n from 'i18next';
+import i18n, { changeLanguage } from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import { AppState, DevSettings, I18nManager, Platform } from 'react-native';
 import * as Updates from 'expo-updates';
@@ -16,6 +16,7 @@ export const LANGS: { code: Lang; label: string; rtl: boolean }[] = [
 
 export const isRtlLang = (l: string) => LANGS.find((x) => x.code === l)?.rtl ?? true;
 
+// eslint-disable-next-line import/no-named-as-default-member
 i18n.use(initReactI18next).init({
   resources: { ar: { translation: ar }, ckb: { translation: ckb }, tk: { translation: tk } },
   lng: 'ar',
@@ -68,12 +69,12 @@ export async function initLanguage(): Promise<boolean> {
       const r = await storage.read(KEYS.lang);
       if (!r.ok) return;
       sub.remove();
-      if (r.value) await i18n.changeLanguage(r.value);
+      if (r.value) await changeLanguage(r.value);
     });
     return true;
   }
   const lang = (l.value as Lang | null) ?? 'ar';
-  await i18n.changeLanguage(lang);
+  await changeLanguage(lang);
   await ensureDirection(lang, true);
   // نعيد حفظها بالإعداد الجديد (تتقرا حتى والشاشة مقفولة)
   if (l.value) await storage.set(KEYS.lang, l.value);
@@ -84,7 +85,7 @@ export async function initLanguage(): Promise<boolean> {
 export async function setLanguage(lang: Lang) {
   await storage.set(KEYS.lang, lang);
   await storage.set(KEYS.langChosen, '1');
-  await i18n.changeLanguage(lang);
+  await changeLanguage(lang);
   await storage.set(RELOAD_GUARD_KEY, null);
   await ensureDirection(lang, true);
 }

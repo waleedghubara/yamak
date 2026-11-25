@@ -167,5 +167,5 @@ export default function MerchantScreen() {
 
 const styles = StyleSheet.create({
   statusIcon: { alignSelf: 'center', width: 110, height: 110, borderRadius: 55, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
-  locBox: { flexDirection: 'row', alignItems: 'center', gap: space.sm, borderWidth: 1.5, borderColor: colors.border, borderRadius: radius.md, padding: space.md, backgroundColor: colors.white },
+  locBox: { flexDirection: 'row', alignItems: 'center', gap: space.sm, borderWidth: 1.5, borderColor: colors.border, borderRadius: radius.md, padding: space.md, backgroundColor: colors.card },
 });

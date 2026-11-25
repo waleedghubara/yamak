@@ -53,7 +53,7 @@ export default function LanguageScreen() {
                 borderRadius: radius.lg,
                 borderWidth: 2,
                 borderColor: selected ? colors.primary : colors.border,
-                backgroundColor: selected ? colors.primarySoft : colors.white,
+                backgroundColor: selected ? colors.primarySoft : colors.card,
               }}
             >
               <T style={{ fontFamily: fonts.bold, fontSize: 18 }}>{l.label}</T>

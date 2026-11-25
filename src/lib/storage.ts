@@ -38,4 +38,6 @@ export const KEYS = {
   lang: 'yamak_lang',
   langChosen: 'yamak_lang_chosen',
   captainOnline: 'yamak_captain_online',
+  /** آخر إصدار شُرحت بيه خطوة «بدون قيود للبطارية» للكابتن */
+  batteryOkVersion: 'yamak_battery_ok',
 } as const;

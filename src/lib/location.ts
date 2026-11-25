@@ -1,6 +1,7 @@
 import * as Location from 'expo-location';
 import { useEffect, useSyncExternalStore } from 'react';
 import { AppState, Platform } from 'react-native';
+import { haversineKm } from './geo';
 import type { Point } from './types';
 
 /**
@@ -162,6 +163,26 @@ export function useMyLocation(active = true): { fix: Fix | null; granted: boolea
     };
   }, [active]);
   return { fix: f, granted: g, approximate: a };
+}
+
+/**
+ * نبض إرسال موقع الكابتن: كل 4 ثواني وهو يتحرك، وكل 15 ثانية إذا واقف.
+ * (الخريطة تتحدث بكل قراءة — هذا بس للإرسال: بطارية أقل وحمل أقل على السيرفر)
+ */
+export function makeLocationGate(movingMs = 4000, idleMs = 15_000, movedMeters = 20) {
+  let last: { lat: number; lng: number; at: number } | null = null;
+  return (p: { lat: number; lng: number }, force = false): boolean => {
+    const now = Date.now();
+    if (force || !last) {
+      last = { lat: p.lat, lng: p.lng, at: now };
+      return true;
+    }
+    const gap = now - last.at;
+    if (gap < movingMs) return false;
+    if (haversineKm(last, p) * 1000 < movedMeters && gap < idleMs) return false;
+    last = { lat: p.lat, lng: p.lng, at: now };
+    return true;
+  };
 }
 
 /**

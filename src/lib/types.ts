@@ -204,6 +204,11 @@ export interface Offer {
   pickupDistanceKm: number;
   timeoutSec: number;
   expiresAt: string;
+  /** مرحلة البحث (1 = الأقرب) */
+  stage?: number;
+  /** خصم كود على الزبون — الشركة تعوّض الكابتن عنه */
+  discount?: number;
+  discountCompensated?: boolean;
 }
 
 export interface ChatMessage {
@@ -251,15 +256,104 @@ export interface NearbyCar {
   category: string;
 }
 
+export interface KhattiAuthor {
+  name: string;
+  captainPhotoUrl: string | null;
+  carPhotoUrl: string | null;
+  car: string | null;
+}
+
+export type KhattiKind = 'offer' | 'request';
+export type PassengerType = 'men' | 'women' | 'family' | 'students' | 'mixed';
+export type KhattiPostStatus = 'active' | 'full' | 'expired' | 'rejected' | 'removed';
+
+/** إعلان خط: كابتن يعرض مقاعد (offer) أو زبون يطلب خط (request) */
+export interface KhattiPost {
+  id: string;
+  kind: KhattiKind;
+  passengerType: PassengerType;
+  from: { label: string; lat: number; lng: number };
+  to: { label: string; lat: number; lng: number };
+  departAt: string;
+  seatsTotal: number;
+  seatsLeft: number;
+  price: number;
+  priceUnit: 'per_seat' | 'per_trip';
+  note: string | null;
+  status: KhattiPostStatus;
+  adminNote?: string | null;
+  expiresAt: string;
+  renewedCount: number;
+  createdAt: string;
+  mine: boolean;
+  author: KhattiAuthor;
+}
+
+export interface KhattiBooking {
+  id: string;
+  postId: string;
+  status: 'pending' | 'accepted' | 'confirmed' | 'declined' | 'cancelled';
+  seats: number;
+  role: 'author' | 'booker';
+  route: { from: string; to: string };
+  departAt: string;
+  price: number;
+  priceUnit: 'per_seat' | 'per_trip';
+  /** الرقم يطلع بعد التأكيد المتبادل بس */
+  other: { name: string; phone: string | null };
+}
+
+export interface KhattiSubscription {
+  mode: 'subscription' | 'free';
+  state: 'none' | 'free' | 'paid' | 'expired' | 'not_required';
+  active: boolean;
+  freeUntil: string | null;
+  paidUntil: string | null;
+  monthlyFee: number;
+  freeMonths: number;
+}
+
+/** مكافأة الكابتن ويا تقدمه */
+export interface Reward {
+  id: string;
+  title: string;
+  tripsRequired: number;
+  amount: number;
+  startsAt: string;
+  endsAt: string;
+  minTripKm: number;
+  progress: number;
+  earned: boolean;
+}
+
+/** كود خصم فعال يطلع كبانر للزبون */
+export interface PromoBanner {
+  code: string;
+  text: string | null;
+  kind: 'percent' | 'fixed';
+  value: number;
+}
+
 export interface PublicConfig {
   serviceArea: { lat: number; lng: number; radiusKm: number };
   categories: { code: string; name: Names }[];
   emergencyNumbers: { label: string; number: string }[];
   supportPhone: string | null;
+  /** رقم دعم الكباتن (يرجع من /api/config) */
+  captainSupportPhone?: string | null;
   termsUrl: string;
   privacyUrl: string;
   cancelPenaltyPercent: number;
   deliveryEnabled?: boolean;
+  khattiEnabled?: boolean;
+  khattiFee?: number;
+  khattiFreeMonths?: number;
+  khattiMinCaptainDays?: number;
+  cardsEnabled?: boolean;
+  promoMaxPerDay?: number;
+  /** التحديث الإجباري: أقل إصدار مسموح + روابط المتجر */
+  minAppVersion?: string | null;
+  storeUrl?: { android: string | null; ios: string | null };
   /** طلبات الزبائن شغالة؟ (زر بلوحة الإدارة) */
   ridesEnabled?: boolean;
   otpChannel?: 'whatsapp' | 'sms';

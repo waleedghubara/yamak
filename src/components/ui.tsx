@@ -18,7 +18,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors, fonts, radius, shadow, space } from '../theme';
+import { colors, fonts, isDark, radius, shadow, space } from '../theme';
 import { isRTL } from '../lib/rtl';
 
 export type IconName = ComponentProps<typeof MaterialCommunityIcons>['name'];
@@ -61,7 +61,7 @@ const btnColors: Record<BtnKind, { bg: string; fg: string; border?: string }> = 
   ghost: { bg: 'transparent', fg: colors.textSoft, border: colors.border },
   danger: { bg: colors.danger, fg: colors.white },
   success: { bg: colors.success, fg: colors.white },
-  white: { bg: colors.white, fg: colors.primaryDark, border: colors.border },
+  white: { bg: colors.card, fg: isDark ? colors.primaryLight : colors.primaryDark, border: colors.border },
 };
 
 export function Button({
@@ -120,7 +120,7 @@ export function IconButton({
   name,
   onPress,
   color = colors.text,
-  bg = colors.white,
+  bg = colors.card,
   size = 44,
   label,
   style,
@@ -141,7 +141,7 @@ export function IconButton({
         onPress={onPress}
         style={({ pressed }) => [
           { width: size, height: size, borderRadius: size / 2, backgroundColor: bg, alignItems: 'center', justifyContent: 'center' },
-          bg === colors.white && shadow,
+          bg === colors.card && shadow,
           pressed && { opacity: 0.8 },
         ]}
         accessibilityRole="button"
@@ -296,7 +296,18 @@ export function Rating({ value, count }: { value: number | null; count?: number 
 }
 
 /** لوحة سفلية فوق الخريطة */
-export function Sheet({ children, style, scroll }: { children: ReactNode; style?: StyleProp<ViewStyle>; scroll?: boolean }) {
+export function Sheet({
+  children,
+  style,
+  scroll,
+  onLayout,
+}: {
+  children: ReactNode;
+  style?: StyleProp<ViewStyle>;
+  scroll?: boolean;
+  /** ارتفاع اللوحة — تستعمله الشاشة حتى تحط أزرار الخريطة فوقها */
+  onLayout?: (height: number) => void;
+}) {
   const insets = useSafeAreaInsets();
   const inner = scroll ? (
     <ScrollView contentContainerStyle={{ gap: space.md }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
@@ -305,7 +316,14 @@ export function Sheet({ children, style, scroll }: { children: ReactNode; style?
   ) : (
     children
   );
-  return <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, space.lg) }, style]}>{inner}</View>;
+  return (
+    <View
+      style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, space.lg) }, style]}
+      onLayout={onLayout ? (e) => onLayout(e.nativeEvent.layout.height) : undefined}
+    >
+      {inner}
+    </View>
+  );
 }
 
 /** نافذة من الأسفل (أسباب الإلغاء، الطوارئ، البلاغ...) */
@@ -322,6 +340,23 @@ export function BottomModal({ visible, onClose, title, children }: { visible: bo
           </T>
         ) : null}
         <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: space.md }}>
+          {children}
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
+/**
+ * شاشة كاملة بنمط المكالمة: تغطي كل شي وما تنسد بالضغط برّه ولا بزر الرجوع —
+ * تنسد بس لما تنتهي الحالة اللي فتحتها (الطلب الجديد للكابتن).
+ */
+export function FullModal({ visible, children }: { visible: boolean; children: ReactNode }) {
+  const insets = useSafeAreaInsets();
+  return (
+    <Modal visible={visible} animationType="fade" onRequestClose={() => {}} statusBarTranslucent>
+      <View style={[styles.fullModal, { paddingTop: insets.top + space.md, paddingBottom: Math.max(insets.bottom, space.lg) }]}>
+        <ScrollView contentContainerStyle={{ gap: space.md, flexGrow: 1, justifyContent: 'center' }} showsVerticalScrollIndicator={false}>
           {children}
         </ScrollView>
       </View>
@@ -398,7 +433,7 @@ export const styles = StyleSheet.create({
   },
   btnSmall: { minHeight: 38, borderRadius: radius.sm, paddingHorizontal: space.md },
   header: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.lg, paddingVertical: space.md },
-  backBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.white, ...shadow, shadowOpacity: 0.06 },
+  backBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card, ...shadow, shadowOpacity: 0.06 },
   card: { backgroundColor: colors.card, borderRadius: radius.lg, padding: space.lg, borderWidth: 1, borderColor: colors.border },
   chip: {
     flexDirection: 'row',
@@ -407,7 +442,7 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: radius.pill,
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
   },
@@ -416,7 +451,7 @@ export const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
     paddingHorizontal: space.lg,
     fontFamily: fonts.medium,
     fontSize: 16,
@@ -427,7 +462,7 @@ export const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
     paddingHorizontal: space.lg,
@@ -436,7 +471,7 @@ export const styles = StyleSheet.create({
     ...shadow,
   },
   modal: {
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
     paddingHorizontal: space.lg,
@@ -444,6 +479,7 @@ export const styles = StyleSheet.create({
     maxHeight: '85%',
   },
   grabber: { alignSelf: 'center', width: 44, height: 5, borderRadius: 3, backgroundColor: colors.border, marginBottom: space.md },
+  fullModal: { flex: 1, backgroundColor: colors.bg, paddingHorizontal: space.lg },
   listItem: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.md, paddingHorizontal: space.sm, borderRadius: radius.md },
   listIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
 });

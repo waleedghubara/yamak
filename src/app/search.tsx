@@ -23,20 +23,28 @@ export default function SearchScreen() {
     api<SavedPlace[]>('/api/me/places').then(setSaved).catch(() => {});
   }, []);
 
-  useEffect(() => {
+  // البحث ينطلق من الكتابة نفسها (بعد 450 جزء من الثانية من آخر حرف)
+  const type = (text: string) => {
+    setQ(text);
     if (timer.current) clearTimeout(timer.current);
-    if (q.trim().length < 2) {
+    const term = text.trim();
+    if (term.length < 2) {
       setResults([]);
+      setLoading(false);
       return;
     }
     setLoading(true);
     timer.current = setTimeout(() => {
-      api<PlaceResult[]>('/api/geo/search', { query: { q: q.trim() } })
+      api<PlaceResult[]>('/api/geo/search', { query: { q: term } })
         .then(setResults)
         .catch(() => setResults([]))
         .finally(() => setLoading(false));
     }, 450);
-  }, [q]);
+  };
+
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
 
   const choose = (p: { lat: number; lng: number; name: string; address?: string | null }) => {
     const address = p.address && p.address !== p.name ? `${p.name} – ${p.address}` : p.name;
@@ -55,7 +63,7 @@ export default function SearchScreen() {
         <Row
           style={{
             flex: 1,
-            backgroundColor: colors.white,
+            backgroundColor: colors.card,
             borderRadius: radius.md,
             borderWidth: 1,
             borderColor: colors.primary,
@@ -66,7 +74,7 @@ export default function SearchScreen() {
           <Icon name="magnify" color={colors.primary} />
           <TextInput
             value={q}
-            onChangeText={setQ}
+            onChangeText={type}
             autoFocus
             placeholder={t('search.placeholder')}
             placeholderTextColor={colors.muted}

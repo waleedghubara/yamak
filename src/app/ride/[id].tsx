@@ -1,13 +1,14 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, Animated, AppState, Easing, Image, Pressable, Share, StyleSheet, View } from 'react-native';
+import { Alert, Animated, AppState, Easing, Image, Linking, Pressable, Share, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CaptainCard, PriceText, ReasonModal, SosButton, SosModal } from '../../components/common';
 import { BottomModal, Button, Divider, Icon, IconButton, Loading, Row, Sheet, T, type IconName } from '../../components/ui';
 import { YMap, type MapMarker, type YMapHandle } from '../../components/YMap';
 import { api, fileUrl } from '../../lib/api';
-import { showError } from '../../lib/device';
+import { cacheGet, cacheSet, isOffline, sendOrQueue } from '../../lib/offline';
+import { openWhatsApp, showError } from '../../lib/device';
 import { dateTime, iqd, km, ltr, minutes, shortAddress } from '../../lib/format';
 import { ACTIVE_STATUSES, type Point, type Ride, type Tracking } from '../../lib/types';
 import { useAppConfig } from '../../state/appConfig';
@@ -15,7 +16,7 @@ import { placeBus, setPendingBooking } from '../../state/placeBus';
 import { useSocket, useSocketEvent } from '../../state/socket';
 import { IS_CAPTAIN } from '../../config';
 import { clearTripStatus, showTripStatus } from '../../lib/tripStatus';
-import { colors, fonts, radius, space } from '../../theme';
+import { colors, fonts, radius, shadow, space } from '../../theme';
 
 interface DestPreview {
   distanceKm: number;
@@ -27,6 +28,11 @@ interface DestPreview {
 }
 
 /** متابعة الرحلة من البحث عن كابتن لحد الوصول والتقييم */
+/** لقطة الرحلة للكاش: بدون مسار الخريطة والتفاصيل الكبيرة (حد التخزين الآمن) */
+function rideSnapshot(r: Ride): Ride {
+  return { ...r, routeGeometry: null };
+}
+
 export default function RideScreen() {
   const { t } = useTranslation();
   const cfg = useAppConfig();
@@ -43,6 +49,10 @@ export default function RideScreen() {
   const [destPoint, setDestPoint] = useState<Point | null>(null);
   const [destPreview, setDestPreview] = useState<DestPreview | null>(null);
   const [busy, setBusy] = useState(false);
+  const [stale, setStale] = useState(false);
+  // المتابعة شغالة افتراضياً؛ تتوقف إذا حرك الخريطة بيده ويرجّعها زر «إعادة التموضع»
+  const [followPaused, setFollowPaused] = useState(true);
+  const [sheetH, setSheetH] = useState(0);
 
   const load = useCallback(() => {
     api<Ride>(`/api/rides/${id}`)
@@ -52,9 +62,22 @@ export default function RideScreen() {
           return;
         }
         setRide(r);
+        setStale(false);
+        cacheSet(`ride:${id}`, rideSnapshot(r));
         if (r.captain?.location) setCaptainLoc(r.captain.location);
       })
-      .catch(showError);
+      .catch(async (err) => {
+        // بدون إنترنت: نفتح الشاشة على آخر حالة محفوظة بدل ما نعلّق المستخدم
+        if (!isOffline(err)) {
+          showError(err);
+          return;
+        }
+        const hit = await cacheGet<Ride>(`ride:${id}`);
+        if (hit) {
+          setRide(hit.value);
+          setStale(true);
+        } else showError(err);
+      });
   }, [id]);
 
   useEffect(load, [load, reconnects]);
@@ -98,9 +121,16 @@ export default function RideScreen() {
     [id],
   );
 
+  // متابعة سيارة الكابتن: الكاميرا تمشي ويا السيارة (بدون إمالة) لحد ما المستخدم يحرك الخريطة
+  useEffect(() => {
+    if (!ride || followPaused || !captainLoc) return;
+    if (!['DRIVER_EN_ROUTE', 'IN_TRIP'].includes(ride.status)) return;
+    map.current?.follow(captainLoc, captainLoc.heading ?? 0);
+  }, [ride, captainLoc, followPaused]);
+
   // الكاميرا: نضبطها مرة لكل مرحلة حتى ما تقفز مع كل تحديث موقع
   useEffect(() => {
-    if (!ride) return;
+    if (!ride || !followPaused) return;
     const toPickup = ['DRIVER_ASSIGNED', 'DRIVER_EN_ROUTE', 'DRIVER_ARRIVED'].includes(ride.status);
     const key = `${ride.status}:${captainLoc ? 1 : 0}`;
     if (fitKey.current === key) return;
@@ -109,7 +139,7 @@ export default function RideScreen() {
     if (ride.status === 'SEARCHING' || ride.status === 'NO_DRIVER_FOUND') map.current?.flyTo(ride.pickup, 16);
     else if (toPickup) map.current?.fitTo([ride.pickup, ...(captainLoc ? [captainLoc] : [])], pad);
     else map.current?.fitTo([ride.pickup, ...ride.stops, ride.dropoff, ...(captainLoc ? [captainLoc] : [])], pad);
-  }, [ride, captainLoc, insets.top]);
+  }, [ride, captainLoc, insets.top, followPaused]);
 
   // وقت الوصول ويا الخط على شاشة القفل والشريط الأعلى (Live Activity بالآيفون، إشعار ثابت بالأندرويد)
   useEffect(() => {
@@ -163,9 +193,19 @@ export default function RideScreen() {
   const route = track?.geometry ?? (s === 'IN_TRIP' || !active ? ride.routeGeometry : null);
 
   const cancel = async (reason: string) => {
-    const r = await api<{ ride: Ride; penaltyApplied: boolean }>(`/api/rides/${id}/cancel`, { body: { reason } });
-    setRide(r.ride);
+    const r = await sendOrQueue<{ ride: Ride; penaltyApplied: boolean }>({
+      id: `${id}:cancel`,
+      path: `/api/rides/${id}/cancel`,
+      method: 'POST',
+      body: { reason },
+      label: 'cancel',
+    });
     setModal(null);
+    if (!r) {
+      Alert.alert('', t('offline.queued'));
+      return;
+    }
+    setRide(r.ride);
   };
 
   const quickCancel = () =>
@@ -184,6 +224,22 @@ export default function RideScreen() {
       }),
     }).catch(() => {});
   };
+
+  /** مشاركة الرحلة بالواتساب (رابط المتابعة الحي) */
+  const shareWhatsApp = () => {
+    if (!ride.shareUrl) return;
+    const text = t('ride.shareMessage', {
+      captain: ride.captain ? `${ride.captain.name ?? '—'}${ride.captain.code ? ` (${ride.captain.code})` : ''}` : '—',
+      car: ride.captain ? `${ride.captain.carModel} ${ride.captain.carColor} — ${ride.captain.plateNumber}` : '—',
+      url: ride.shareUrl,
+    });
+    // بدون رقم: الواتساب يفتح قائمة جهات الاتصال ويا النص جاهز
+    Linking.openURL(`https://wa.me/?text=${encodeURIComponent(text)}`).catch(() => {});
+  };
+
+  /** الدعم عبر الواتساب ويا رقم الرحلة */
+  const supportWhatsApp = () =>
+    openWhatsApp(cfg.supportPhone, t('ride.helpWhatsAppText', { number: ride.number ? `#${ride.number}` : id.slice(0, 8) }));
 
   const togglePause = async () => {
     try {
@@ -229,7 +285,15 @@ export default function RideScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <YMap ref={map} initialCenter={ride.pickup} initialZoom={15} markers={markers} route={route} vehicle={vehicle} />
+      <YMap
+        ref={map}
+        initialCenter={ride.pickup}
+        initialZoom={15}
+        markers={markers}
+        route={route}
+        vehicle={vehicle}
+        onMoveStart={() => setFollowPaused(true)}
+      />
       {s === 'SEARCHING' ? <Pulse /> : null}
 
       <View style={[styles.top, { top: insets.top + space.sm }]}>
@@ -245,7 +309,30 @@ export default function RideScreen() {
         {active && s !== 'SEARCHING' ? <SosButton onTrigger={() => setModal('sos')} /> : <View style={{ width: 44 }} />}
       </View>
 
-      <Sheet scroll style={{ maxHeight: '62%' }}>
+      {/* إعادة التموضع: فوق اللوحة السفلية مباشرة حتى يبقى الزر ظاهر والخريطة واضحة */}
+      {captainLoc && ['DRIVER_EN_ROUTE', 'IN_TRIP'].includes(s) ? (
+        <IconButton
+          name="crosshairs-gps"
+          color={followPaused ? colors.primary : colors.white}
+          bg={followPaused ? colors.card : colors.primary}
+          onPress={() => {
+            setFollowPaused(false);
+            map.current?.follow(captainLoc, captainLoc.heading ?? 0);
+          }}
+          style={[styles.recenter, { bottom: sheetH + space.md }]}
+        />
+      ) : null}
+
+      <Sheet scroll style={{ maxHeight: '58%' }} onLayout={setSheetH}>
+        {stale ? (
+          <Row gap={6} style={{ justifyContent: 'center' }}>
+            <Icon name="wifi-off" size={16} color={colors.warning} />
+            <T v="small" color={colors.warning}>
+              {t('offline.cached')}
+            </T>
+          </Row>
+        ) : null}
+
         {/* ───── البحث عن كابتن ───── */}
         {s === 'SEARCHING' ? (
           <>
@@ -302,6 +389,9 @@ export default function RideScreen() {
                 <Action icon="map-marker-path" label={t('ride.changeDestination')} onPress={() => router.push({ pathname: '/search', params: { target: `dest:${id}` } })} />
               ) : null}
               <Action icon="share-variant" label={t('ride.shareRide')} onPress={share} />
+              {/* مشاركة الرحلة بالواتساب مباشرة + الدعم بالواتساب */}
+              <Action icon="whatsapp" label={t('ride.shareWhatsApp')} onPress={shareWhatsApp} />
+              {cfg.supportPhone ? <Action icon="headset" label={t('ride.helpWhatsApp')} onPress={supportWhatsApp} /> : null}
               <Action icon="flag-outline" label={t('ride.report')} onPress={() => setModal('report')} />
               {toPickup ? <Action icon="close" label={t('ride.cancelRide')} danger onPress={() => setModal('cancel')} /> : null}
             </Row>
@@ -542,7 +632,7 @@ function Action({ icon, label, onPress, danger }: { icon: IconName; label: strin
 
 /** حركة بسيطة حول موقع الزبون أثناء البحث */
 function Pulse() {
-  const v = useRef(new Animated.Value(0)).current;
+  const [v] = useState(() => new Animated.Value(0));
   useEffect(() => {
     const loop = Animated.loop(Animated.timing(v, { toValue: 1, duration: 1800, easing: Easing.out(Easing.ease), useNativeDriver: true }));
     loop.start();
@@ -575,12 +665,13 @@ function Pulse() {
 }
 
 const styles = StyleSheet.create({
+  recenter: { position: 'absolute', end: space.lg, zIndex: 2, ...shadow },
   top: { position: 'absolute', left: space.lg, right: space.lg, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   statusBox: { backgroundColor: colors.primary, borderRadius: radius.md, padding: space.md, gap: 2 },
   check: { width: 72, height: 72, borderRadius: 36, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   fareBox: { alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: radius.lg, padding: space.lg, gap: 2 },
   action: { width: 48, height: 48, borderRadius: 24, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
-  numberPill: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.white, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 6 },
+  numberPill: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.card, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 6 },
   deliveryCard: { flexDirection: 'row', gap: space.md, backgroundColor: colors.warningSoft, borderRadius: radius.md, padding: space.md, alignItems: 'center' },
   pkgPhoto: { width: 64, height: 64, borderRadius: radius.sm, backgroundColor: colors.border },
   pulseCore: { width: 56, height: 56, borderRadius: 28, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: colors.white },

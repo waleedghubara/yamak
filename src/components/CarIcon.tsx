@@ -49,7 +49,6 @@ export function useSmoothVehicle(target: VehiclePos | null | undefined, duration
     if (!target) {
       cur.current = null;
       lastTarget.current = null;
-      setPos(null);
       return;
     }
     const prev = lastTarget.current;
@@ -92,5 +91,6 @@ export function useSmoothVehicle(target: VehiclePos | null | undefined, duration
     };
   }, [target?.lat, target?.lng, target?.heading, durationMs]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return pos;
+  // ماكو هدف = ماكو سيارة تنعرض (بدون تصفير حالة داخل الإيفكت)
+  return target ? pos : null;
 }

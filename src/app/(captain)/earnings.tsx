@@ -1,5 +1,5 @@
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { DebtMeter } from '../../components/DebtMeter';
@@ -7,7 +7,8 @@ import { DocPicker, type DocValue } from '../../components/DocPicker';
 import { BottomModal, Button, Card, Chip, Empty, Icon, Input, Pill, Rating, Row, Screen, T } from '../../components/ui';
 import { api, fileUrl } from '../../lib/api';
 import { showError } from '../../lib/device';
-import { dateTime, iqd } from '../../lib/format';
+import { dateTime, iqd, ltr } from '../../lib/format';
+import { useAuth } from '../../state/auth';
 import { useSocketEvent } from '../../state/socket';
 import { colors, fonts, radius, space } from '../../theme';
 import type { CaptainSummary } from './home';
@@ -43,11 +44,15 @@ interface Receipt {
  */
 export default function EarningsScreen() {
   const { t } = useTranslation();
+  const { me } = useAuth();
   const [summary, setSummary] = useState<CaptainSummary | null>(null);
   const [ledger, setLedger] = useState<LedgerRow[]>([]);
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [loading, setLoading] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
+  const [advancing, setAdvancing] = useState(false);
+  const [serial, setSerial] = useState('');
+  const [redeeming, setRedeeming] = useState(false);
   const [tab, setTab] = useState<'ledger' | 'receipts'>('ledger');
 
   const load = useCallback(async () => {
@@ -65,6 +70,42 @@ export default function EarningsScreen() {
     }, [load]),
   );
   useSocketEvent('captain:status', () => load());
+
+  /** سلفة الطوارئ: مرة واحدة، ترفع حد الإيقاف لحد ما يسدد كامل المبلغ */
+  const takeAdvance = () =>
+    Alert.alert(t('captain.advance.title'), t('captain.advance.confirm'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      {
+        text: t('common.yes'),
+        onPress: async () => {
+          setAdvancing(true);
+          try {
+            await api('/api/captain/advance', { body: {} });
+            load();
+            Alert.alert('', t('captain.advance.done'));
+          } catch (err) {
+            showError(err);
+          } finally {
+            setAdvancing(false);
+          }
+        },
+      },
+    ]);
+
+  /** شحن بطاقة: 8 أرقام، تستعمل مرة وحدة (قفل 15 دقيقة بعد 5 محاولات خاطئة) */
+  const redeem = async () => {
+    setRedeeming(true);
+    try {
+      const r = await api<{ value: number; balanceOwed: number }>('/api/captain/cards/redeem', { body: { serial } });
+      setSerial('');
+      load();
+      Alert.alert('', t('captain.cards.done', { amount: iqd(r.value) }));
+    } catch (err) {
+      showError(err);
+    } finally {
+      setRedeeming(false);
+    }
+  };
 
   const discountsTotal = ledger.reduce((a, r) => a + (r.type === 'ride' ? (r.discount ?? 0) : 0), 0);
 
@@ -89,7 +130,52 @@ export default function EarningsScreen() {
               </Row>
             </Card>
 
-            <DebtMeter balance={summary.balanceOwed} warnAt={summary.warnAt} maxDebt={summary.maxDebt} pendingReceipt={!!summary.pendingReceipt} />
+            {/* بطاقة الكابتن: الاسم ورقم الكابتن */}
+            <Card style={{ gap: 4 }}>
+              <Row style={{ justifyContent: 'space-between' }}>
+                <T v="h3">{me?.user.name}</T>
+                {me?.captain?.code ? (
+                  <View style={{ backgroundColor: colors.primarySoft, borderRadius: radius.sm, paddingHorizontal: space.md, paddingVertical: 2 }}>
+                    <T v="bodyBold" color={colors.primaryDark}>
+                      {t('ride.captainCode')} {ltr(String(me.captain.code))}
+                    </T>
+                  </View>
+                ) : null}
+              </Row>
+              {me?.captain ? (
+                <T v="small">
+                  {me.captain.carModel} · {me.captain.carColor} · {ltr(me.captain.plateNumber)}
+                </T>
+              ) : null}
+            </Card>
+
+            <DebtMeter balance={summary.balanceOwed} warnAt={summary.warnAt} maxDebt={summary.effectiveMaxDebt ?? summary.maxDebt} pendingReceipt={!!summary.pendingReceipt} />
+
+            {/* سلفة الطوارئ: مرة واحدة عند بلوغ حد الإيقاف، ترفع الحد لحد ما يسدد كامل المبلغ */}
+            {summary.canTakeAdvance ? (
+              <Card style={{ gap: space.sm, borderColor: colors.warning }}>
+                <Row gap={6}>
+                  <Icon name="lifebuoy" color={colors.warning} />
+                  <T v="h3">{t('captain.advance.title')}</T>
+                </Row>
+                <T v="caption">{t('captain.advance.body', { amount: iqd(summary.advanceAmount ?? 0), max: iqd(summary.effectiveMaxDebt ?? summary.maxDebt) })}</T>
+                <Button
+                  kind="secondary"
+                  icon="lifebuoy"
+                  title={t('captain.advance.take', { amount: iqd(summary.advanceAmount ?? 0) })}
+                  loading={advancing}
+                  onPress={takeAdvance}
+                />
+              </Card>
+            ) : null}
+            {summary.advanceActive ? (
+              <Row style={{ gap: space.sm, padding: space.md, borderRadius: radius.md, backgroundColor: colors.warningSoft }}>
+                <Icon name="lifebuoy" color={colors.warning} />
+                <T v="small" color={colors.textSoft} style={{ flex: 1 }}>
+                  {t('captain.advance.active', { amount: iqd(summary.payInFull ?? summary.balanceOwed) })}
+                </T>
+              </Row>
+            ) : null}
 
             {/* التسديد: تحويل ماستر + رفع الوصل */}
             <Card style={{ gap: space.sm }}>
@@ -107,6 +193,29 @@ export default function EarningsScreen() {
                 disabled={!!summary.pendingReceipt || summary.balanceOwed <= 0}
                 onPress={() => setPayOpen(true)}
               />
+            </Card>
+
+            {/* شحن بطاقة: «قريباً» لحد ما الإدارة تفعّله */}
+            <Card style={{ gap: space.sm }}>
+              <Row gap={6}>
+                <Icon name="card-text-outline" color={colors.primary} />
+                <T v="h3">{t('captain.cards.title')}</T>
+                {!summary.cardsEnabled ? <Pill label={t('common.comingSoon')} tone="muted" /> : null}
+              </Row>
+              <T v="caption">{summary.cardsEnabled ? t('captain.cards.body') : t('captain.cards.soon')}</T>
+              {summary.cardsEnabled ? (
+                <Row gap={space.sm}>
+                  <Input
+                    containerStyle={{ flex: 1 }}
+                    value={serial}
+                    onChangeText={(v) => setSerial(v.replace(/[^\d]/g, '').slice(0, 8))}
+                    placeholder="12345678"
+                    keyboardType="number-pad"
+                    maxLength={8}
+                  />
+                  <Button title={t('captain.cards.redeem')} loading={redeeming} disabled={serial.length !== 8} onPress={redeem} />
+                </Row>
+              ) : null}
             </Card>
 
             <Row gap={space.md}>
@@ -186,6 +295,8 @@ export default function EarningsScreen() {
 
       {summary ? (
         <ReceiptModal
+          /* يرجع المبلغ للرصيد الحالي كل مرة تنفتح النافذة */
+          key={`${payOpen}-${summary.balanceOwed}`}
           visible={payOpen}
           balance={summary.balanceOwed}
           onClose={() => setPayOpen(false)}
@@ -207,9 +318,6 @@ function ReceiptModal({ visible, balance, onClose, onSent }: { visible: boolean;
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const n = Number(amount.replace(/[^\d]/g, ''));
-  useEffect(() => {
-    if (visible) setAmount(String(balance));
-  }, [visible, balance]);
 
   const send = async () => {
     setBusy(true);

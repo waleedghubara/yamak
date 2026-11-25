@@ -37,13 +37,15 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       setReconnects((n) => n + 1);
     });
     s.on('disconnect', () => setConnected(false));
-    setSocket(s);
+    // ننشر السوكت بعد الرندر (مو داخل جسم الإيفكت) حتى ما يصير رندر متسلسل
+    const publish = setTimeout(() => setSocket(s), 0);
 
     // لما التطبيق يرجع من الخلفية نتأكد إن الاتصال شغال
     const sub = AppState.addEventListener('change', (st) => {
       if (st === 'active' && !s.connected) s.connect();
     });
     return () => {
+      clearTimeout(publish);
       sub.remove();
       s.removeAllListeners();
       s.disconnect();
@@ -63,7 +65,9 @@ export function useSocket() {
 export function useSocketEvent<T = any>(event: string, handler: (data: T) => void) {
   const { socket } = useSocket();
   const ref = useRef(handler);
-  ref.current = handler;
+  useEffect(() => {
+    ref.current = handler;
+  }, [handler]);
   useEffect(() => {
     if (!socket) return;
     const fn = (d: T) => ref.current(d);

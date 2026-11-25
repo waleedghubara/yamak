@@ -97,6 +97,6 @@ export default function PickLocation() {
 }
 
 const styles = StyleSheet.create({
-  top: { position: 'absolute', left: space.lg, right: space.lg, backgroundColor: colors.white, borderRadius: radius.lg, padding: space.md, gap: space.sm, ...shadow },
+  top: { position: 'absolute', left: space.lg, right: space.lg, backgroundColor: colors.card, borderRadius: radius.lg, padding: space.md, gap: space.sm, ...shadow },
   search: { flexDirection: 'row', alignItems: 'center', gap: space.sm, backgroundColor: colors.bg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, paddingHorizontal: space.md, minHeight: 46 },
 });
