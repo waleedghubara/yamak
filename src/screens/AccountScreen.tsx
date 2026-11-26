@@ -78,8 +78,9 @@ export default function AccountScreen() {
       },
     ]);
 
+  // حساب الكابتن والزبون واحد (نفس الرقم) — لازم يعرف إن الحذف يشيل الاثنين
   const deleteAccount = () =>
-    Alert.alert(t('account.deleteTitle'), t('account.deleteMessage'), [
+    Alert.alert(t('account.deleteTitle'), me?.captain ? t('account.deleteMessageCaptain') : t('account.deleteMessage'), [
       { text: t('common.cancel'), style: 'cancel' },
       {
         text: t('account.deleteConfirm'),

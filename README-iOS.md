@@ -2,32 +2,81 @@
 
 One Expo codebase (Expo SDK 57, React Native 0.86, TypeScript) produces **two separate apps**:
 
-| App | `APP_VARIANT` | Display name | iOS bundle ID | Android package | EAS build profile |
-|---|---|---|---|---|---|
-| Customer | `customer` | يمك تكسي | `com.waleedghubara.yamak.customer` | `iq.yamak.app` | `customer-production` |
-| Captain (driver) | `captain` | يمك كابتن | `com.waleedghubara.yamak.captain` | `iq.yamak.captain` | `captain-production` |
+| App | `APP_VARIANT` | Display name | Bundle ID | EAS build profile |
+|---|---|---|---|---|
+| Customer | `customer` | يمك تكسي | `iq.yamak.app` | `customer-production` |
+| Captain (driver) | `captain` | يمك كابتن | `iq.yamak.captain` | `captain-production` |
 
-The iOS bundle identifiers can be overridden with `IOS_BUNDLE_IDENTIFIER`.
-
-- Version: `1.4.0` (in `app.config.ts`). Build numbers are managed by EAS (`"appVersionSource": "remote"`).
+- Version: `1.4.4` (in `app.config.ts`). Build numbers are managed by EAS (`"appVersionSource": "remote"`).
 - Backend: `https://api.yamaktaxi.com` (set in `yamak.config.json`; do not change).
 - `ios/` and `android/` folders are generated (Continuous Native Generation). Do not edit them by hand.
-- Verified before handoff: `tsc --noEmit` passes with 0 errors and `expo config` evaluates for both variants.
-  `expo prebuild -p ios`, `pod install` and the Xcode archive need macOS and were not run — please verify them on your side.
+- Verified before handoff: `npm ci`, `tsc --noEmit` and `expo prebuild -p ios` succeed for both variants.
 
-## What's new in 1.4.0 (read before building)
-Full technical list: **`CHANGES-1.4.0.md`** in this package.
+## CRITICAL — why 1.4.4 exists (read before building)
 
-- **New dependencies — run `npm ci` again:** `expo-sharing@~57.0.26`, `expo-audio@~57.0.5`, `expo-asset@~57.0.18`.
-  `expo-asset` is pinned deliberately; without the pin npm hoists a newer copy and the JS bundle fails to build.
-- **New iOS extension — customer app only.** `expo-sharing` adds a Share Extension so a customer can share a WhatsApp location straight into the app.
-  Target `expo-sharing-extension`, bundle ID **`com.waleedghubara.yamak.customer.expo-sharing-extension`**, App Group **`group.com.waleedghubara.yamak.customer`**.
-  Run the **first** customer build interactively (no `--non-interactive`) and sign in to Apple when asked, so EAS registers the App ID and the App Group. The customer app now has **two** extensions (this one and Live Activity).
-- **Custom notification sound — captain app only:** `assets/yamak_ring.wav` registered through `expo-notifications`. It is the ride-offer ring (three rings, then it stops).
-- **New Info.plist key:** `LSApplicationQueriesSchemes = ["maps", "comgooglemaps", "waze"]`, so the captain app can hand the route to Apple Maps / Google Maps / Waze.
-- **Dark mode:** `userInterfaceStyle` is now `automatic` (was `light`). Both apps follow the iPhone appearance setting; every screen was restyled for it.
-- **Khatti (shared lines)** in both apps, **one ride category** instead of taxi/private, rebuilt captain home screen, promo codes applied with one tap, captain rewards, offline caching and an update gate.
-- Unchanged: bundle identifiers, the Live Activity extension, EAS profiles, and the backend URL.
+**1.4.0 crashed on launch on every device, in BOTH apps** (customer and captain):
+splash screen, then the app quits after a fraction of a second. Android was fine.
+
+### Root cause (confirmed from the iOS crash report)
+
+The crash report shows `RCTExceptionsManager reportFatal` on
+`com.meta.react.turbomodulemanager.queue`, `EXC_CRASH (SIGABRT)`, **244 ms after
+launch** — a fatal JavaScript exception during the very first render, before any
+network call. This is not a signing, entitlement or build-configuration problem.
+
+`expo-sharing`'s `useIncomingShare()` hook starts with:
+
+```js
+const [sharedPayloads, setSharedPayloads] = useState(getSharedPayloads());
+```
+
+`getSharedPayloads()` calls the native module **synchronously during the first
+render, with no error handling**. On iOS that call throws whenever the Share
+Extension / App Group is not present in the build — and a throw during render is
+a fatal error in a Release build.
+
+Our `<IncomingLocation />` component called that hook and is mounted
+unconditionally in the root layout of **both** apps, so both crashed. The captain
+app was built with `SHARING_EXTENSION: "0"`, which removes the extension — and
+that is exactly the condition that makes the native call throw.
+
+`expo-sharing` was added in 1.4.0, which is why 1.2.0 and 1.3.0 were fine.
+
+### The fix (1.4.4)
+
+`src/components/IncomingLocation.tsx` no longer uses `useIncomingShare`. It reads
+the shared payload **after** render, inside `try/catch`. If the extension is
+missing, that one feature silently does nothing and the app runs normally.
+
+### iOS app extensions are now OFF by default
+
+Both iOS extensions are **disabled by default** in 1.4.4, so the build needs no
+extra App IDs, no App Group and no extra provisioning profiles:
+
+```
+LIVE_ACTIVITY=1       # opt in to the Live Activity widget extension
+SHARING_EXTENSION=1   # opt in to the iOS share extension (needs an App Group)
+```
+
+Please build with the plain `customer-production` / `captain-production`
+settings and **do not set these variables**. Your existing
+`SHARING_EXTENSION: "0"` in the captain workflow stays correct and harmless.
+
+Note: this only affects iOS. **Android sharing is unchanged and still enabled**,
+and location links (`geo:` and Google Maps URLs) keep opening the app on both
+platforms — neither needs an app extension.
+
+### Verified here
+* `tsc --noEmit` — 0 errors
+* `npx expo export --platform ios` — the JS bundle builds for **both** variants
+* `npx expo config --type public` — both variants resolve, version 1.4.4
+* a startup regression check: the shipped 1.4.0 component crashes under a missing
+  native module, the 1.4.4 component does not
+
+## Please test on a real device before submitting
+Install through **TestFlight on a physical iPhone** and confirm each app opens
+past the splash screen. 1.4.0 passed App Review and still crashed for every user,
+so review alone does not catch this.
 
 ## Requirements
 - Node.js 20 or newer, npm
@@ -74,12 +123,20 @@ Repeat with `APP_VARIANT=captain`, always using `--clean` when you switch varian
 ---
 
 ## بالعربي (مختصر)
-- تطبيقين من نفس الكود: **يمك تكسي** و**يمك كابتن** (معرّفات آبل: `com.waleedghubara.yamak.customer` و`com.waleedghubara.yamak.captain`). يتحدد التطبيق بالمتغير `APP_VARIANT=customer` أو `captain`.
+- تطبيقين من نفس الكود: **يمك تكسي** (`iq.yamak.app`) و**يمك كابتن** (`iq.yamak.captain`). يتحدد التطبيق بالمتغير `APP_VARIANT=customer` أو `captain`.
 - البناء الأسهل يكون بـ EAS (الأوامر فوق)، أو بـ Xcode على ماك.
 - لمراجعة أبل: رقم مراجعة ورمز ثابت يطلبونه من صاحب يمك. تطبيق الكابتن يستخدم الموقع بالخلفية بس وهو متصل أو بالرحلة، وحذف الحساب موجود داخل التطبيق.
 
-## Store screenshots
+### تنبيه مهم بالعربي
+نسخة **1.4.0** كانت تنغلق عند الإقلاع على **كل** الأجهزة وبـ**التطبيقين**. سجل الانهيار من الآيفون
+أثبت السبب: خطأ جافاسكربت قاتل أثناء أول رسم، بعد ٢٤٤ ملي ثانية من الإقلاع — مو مشكلة توقيع ولا بناء.
 
-`screenshots/` holds the 1.4.0 store images for both variants (6 customer + 6 captain)
-plus each variant's 512x512 icon. See `screenshots/README.md` for the screen-by-screen list.
-All personal data inside the images is demo data.
+الخطّاف `useIncomingShare` من `expo-sharing` ينادي الوحدة الأصلية **أثناء الرسم وبدون حماية**،
+وهاي المناداة ترمي استثناء على الآيفون إذا Share Extension مو موجود بالبناء. والمكوّن اللي يناديها
+موجود بجذر التطبيقين، فالاثنين ينهاران.
+
+بنسخة **1.4.3** صارت القراءة بعد الرسم وداخل try/catch. الامتدادان رجعا شغالين افتراضياً، وإطفاء
+أي واحد منهما صار آمن تماماً — متغيراتكم بـ`codemagic.yaml` تشتغل مثل ما هي، بضمنها
+`SHARING_EXTENSION: "0"` بتطبيق الكابتن.
+
+**جرّبوا على آيفون حقيقي عبر TestFlight قبل الرفع.**

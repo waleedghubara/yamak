@@ -49,17 +49,18 @@
         "APP_VARIANT": "captain"
       }
     },
-    "customer-production-nolive": {
+    "customer-production-ios-extensions": {
       "extends": "customer-production",
       "env": {
         "APP_VARIANT": "customer",
-        "LIVE_ACTIVITY": "0"
+        "LIVE_ACTIVITY": "1",
+        "SHARING_EXTENSION": "1"
       }
     }
   },
   "submit": {
     "customer-production": {},
     "captain-production": {},
-    "customer-production-nolive": {}
+    "customer-production-ios-extensions": {}
   }
 }

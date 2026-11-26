@@ -32,16 +32,30 @@ const PROJECT_ID = (CAPTAIN ? file.easProjectIdCaptain : file.easProjectIdCustom
 // أندرويد يمنع http العادي بالنسخ النهائية — نسمح بيه فقط إذا السيرفر بدون https (للتجربة على الشبكة المحلية)
 const ALLOW_HTTP = API_URL.startsWith('http://');
 // إشعارات أندرويد تحتاج ملف Firebase: ينحط بنفس المجلد باسم google-services.json (يشتغل للتطبيقين)
-// معرّف التطبيق على آبل — حسابات الشركة الناشرة. IOS_BUNDLE_IDENTIFIER يغلب عليه إذا موجود
+const GOOGLE_SERVICES = existsSync(path.join(__dirname, 'google-services.json')) ? './google-services.json' : undefined;
+/**
+ * امتدادات الآيفون (App Extensions) — **مطفية افتراضياً**.
+ *
+ * كل امتداد ينبني ببرنامج وتوقيع مستقل، والمشاركة تحتاج App Group مسجّل بحساب أبل.
+ * نسخة 1.4.0 سقطت لأن هذي المتطلبات ما انضبطت عند البناء. ما كو داعي نخاطر بيها:
+ * التطبيق يشتغل كامل بدونها، والميزتان المتأثرتان ثانويتان على الآيفون فقط.
+ *
+ * تشغيلها وقت البناء (بعد ما يتأكدون من التوقيع و App Group):
+ *   LIVE_ACTIVITY=1       متابعة الرحلة على شاشة القفل والـ Dynamic Island
+ *   SHARING_EXTENSION=1   «مشاركة» موقع من الواتساب لتطبيق يمك — على الآيفون
+ *
+ * مهم: الإطفاء يخص **الآيفون فقط**. مشاركة الموقع على أندرويد تضل شغالة دائماً،
+ * ومعها فتح روابط المواقع (geo: وروابط خرائط كوكل) على النظامين — هذي ما تحتاج امتداد.
+ * وكذلك الإطفاء آمن تماماً من 1.4.3: قراءة المشارَك صارت محمية، فالتطبيق ما ينهار
+ * إذا الامتداد ناقص (شوف src/components/IncomingLocation.tsx).
+ */
+// معرّف التطبيق على آبل — حساب الشركة الناشرة. IOS_BUNDLE_IDENTIFIER يغلب عليه إذا موجود
 const IOS_BUNDLE_IDENTIFIER =
   process.env.IOS_BUNDLE_IDENTIFIER ||
   (CAPTAIN ? 'com.waleedghubara.yamak.captain' : 'com.waleedghubara.yamak.customer');
 
-const GOOGLE_SERVICES = existsSync(path.join(__dirname, 'google-services.json')) ? './google-services.json' : undefined;
-// متابعة الرحلة على شاشة قفل الآيفون (Live Activity) — تطبيق الزبون فقط. LIVE_ACTIVITY=0 يطفيها
-const LIVE_ACTIVITY = !CAPTAIN && process.env.LIVE_ACTIVITY !== '0';
-// مشاركة موقع من الواتساب عبر Share Extension (تطبيق الزبون فقط). SHARING_EXTENSION=0 يطفيها لتفادي متطلبات App Groups
-const SHARING_EXTENSION = !CAPTAIN && process.env.SHARING_EXTENSION !== '0';
+const LIVE_ACTIVITY = !CAPTAIN && process.env.LIVE_ACTIVITY === '1';
+const IOS_SHARE_EXTENSION = !CAPTAIN && process.env.SHARING_EXTENSION === '1';
 const LOCATION_TEXT = CAPTAIN
   ? 'يمك كابتن يستخدم موقعك وانت متصل أو بالرحلة، حتى لو التطبيق بالخلفية أو الشاشة مطفية، حتى يوصلك أقرب الطلبات ويتابع الزبون وصولك ويشتغل دليل الطريق.'
   : 'يمك يحتاج موقعك حتى يحدد نقطة الانطلاق ويوصلك أقرب كابتن.';
@@ -52,7 +66,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   name: CAPTAIN ? 'يمك كابتن' : 'يمك تكسي',
   slug: CAPTAIN ? 'yamak-captain' : 'yamak',
   scheme: CAPTAIN ? 'yamakcaptain' : 'yamak',
-  version: '1.4.0',
+  version: '1.4.4',
   orientation: 'portrait',
   icon: CAPTAIN ? './assets/icon-captain.png' : './assets/icon.png',
   userInterfaceStyle: 'automatic',
@@ -143,18 +157,21 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         enableBackgroundRemoteNotifications: false,
       },
     ],
-    // «مشاركة» موقع من الواتساب إلى «يمك تكسي» مباشرة (تطبيق الزبون بس)
-    ...(SHARING_EXTENSION
-      ? [
+    // «مشاركة» موقع من الواتساب إلى «يمك تكسي» مباشرة (تطبيق الزبون بس).
+    // أندرويد يضل شغال دائماً؛ الآيفون يحتاج Share Extension + App Group فيتطفي افتراضياً.
+    ...(CAPTAIN
+      ? []
+      : [
           [
             'expo-sharing',
             {
               android: { enabled: true, singleShareMimeTypes: ['text/plain'] },
-              ios: { enabled: true, activationRule: { supportsText: true, supportsWebUrlWithMaxCount: 1 } },
+              ios: IOS_SHARE_EXTENSION
+                ? { enabled: true, activationRule: { supportsText: true, supportsWebUrlWithMaxCount: 1 } }
+                : { enabled: false },
             },
           ] as [string, Record<string, unknown>],
-        ]
-      : []),
+        ]),
     ...(LIVE_ACTIVITY ? ['expo-live-activity'] : []),
     '@maplibre/maplibre-react-native',
     ['expo-build-properties', { android: { usesCleartextTraffic: ALLOW_HTTP } }],

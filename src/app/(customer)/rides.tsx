@@ -3,6 +3,7 @@ import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FlatList, RefreshControl, View } from 'react-native';
 import { Card, Chip, Divider, Empty, Icon, Pill, Row, Screen, T } from '../../components/ui';
+import { IS_CAPTAIN } from '../../config';
 import { api } from '../../lib/api';
 import { dateTime, iqd, km, shortAddress } from '../../lib/format';
 import type { Ride } from '../../lib/types';
@@ -86,7 +87,8 @@ export default function RidesScreen() {
                 {iqd(r.fare.finalFare)}
               </T>
             </Row>
-            {filter !== 'current' ? (
+            {/* «اطلب نفس الرحلة» للزبون بس — بتطبيق الكابتن تفتح شاشات الزبون */}
+            {filter !== 'current' && !IS_CAPTAIN ? (
               <Chip
                 icon="refresh"
                 label={t('ride.orderAgain')}

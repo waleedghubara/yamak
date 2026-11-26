@@ -1,9 +1,8 @@
 import { useLinkingURL } from 'expo-linking';
 import { router } from 'expo-router';
-import { useIncomingShare } from 'expo-sharing';
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert } from 'react-native';
+import { Alert, AppState } from 'react-native';
 import { IS_CAPTAIN } from '../config';
 import { api } from '../lib/api';
 import { freshFix, getFix } from '../lib/location';
@@ -49,11 +48,62 @@ async function toPoint(url: string): Promise<Point & { inServiceArea?: boolean }
   return api<Point & { inServiceArea: boolean }>('/api/geo/resolve', { query: { url } });
 }
 
+interface SharedPayload {
+  value: string;
+  shareType: string;
+}
+
+/**
+ * قراءة «المشاركة» من تطبيق ثاني — بأمان.
+ *
+ * ليش ما نستعمل useIncomingShare من expo-sharing مباشرة: أول سطر بيها
+ * `useState(getSharedPayloads())` — يعني تنادي الوحدة الأصلية **أثناء أول رسم**
+ * وبدون أي حماية. وعلى الآيفون هاي المناداة ترمي استثناء إذا Share Extension
+ * مو مبني أو App Group مو مضبوط، واستثناء أثناء الرسم = انهيار قاتل عند الإقلاع.
+ * وهذا اللي صار بنسخة 1.4.0: التطبيقين ينغلقان بعد شاشة البداية بجزء من الثانية.
+ *
+ * هنا المناداة تصير **بعد** الرسم وداخل try/catch: إذا الامتداد موجود تشتغل
+ * الميزة عادي، وإذا مو موجود تنطفي بهدوء والتطبيق يكمل شغله.
+ */
+function useSharedPayloadsSafe() {
+  const [payloads, setPayloads] = useState<SharedPayload[]>([]);
+
+  const read = useCallback(() => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const payloads = (require('expo-sharing') as typeof import('expo-sharing')).getSharedPayloads();
+      setPayloads(payloads as SharedPayload[]);
+    } catch {
+      setPayloads([]); // الامتداد مو مبني بهذي النسخة — الميزة مطفية بس
+    }
+  }, []);
+
+  useEffect(() => {
+    read();
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') read();
+    });
+    return () => sub.remove();
+  }, [read]);
+
+  const clear = useCallback(() => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      (require('expo-sharing') as typeof import('expo-sharing')).clearSharedPayloads();
+    } catch {
+      // ماكو شي ننظفه
+    }
+    setPayloads([]);
+  }, []);
+
+  return { sharedPayloads: payloads, clearSharedPayloads: clear };
+}
+
 export function IncomingLocation() {
   const { t } = useTranslation();
   const { token } = useAuth();
   const url = useLinkingURL();
-  const { sharedPayloads, clearSharedPayloads } = useIncomingShare();
+  const { sharedPayloads, clearSharedPayloads } = useSharedPayloadsSafe();
   const handled = useRef<string | null>(null);
 
   // رابط مباشر من قائمة الفتح

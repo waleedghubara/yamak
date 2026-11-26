@@ -1,11 +1,15 @@
 import { Tabs } from 'expo-router';
 import { useTranslation } from 'react-i18next';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, fonts } from '../theme';
 import { Icon, type IconName } from './ui';
 
 /** شريط التبويبات السفلي بستايل يمك */
 export function YamakTabs({ tabs }: { tabs: { name: string; title: string; icon: IconName; iconActive: IconName; hideBar?: boolean }[] }) {
   const { t } = useTranslation();
+  // أندرويد 15 وآيفون يرسمون التطبيق تحت شريط النظام السفلي، فنزيد ارتفاع الشريط بمقداره
+  // وإلا أزرار النظام تغطي أسماء التبويبات. ولون الخلفية لازم يجي من الثيم مو الافتراضي الأبيض.
+  const insets = useSafeAreaInsets();
   return (
     <Tabs
       screenOptions={{
@@ -13,7 +17,13 @@ export function YamakTabs({ tabs }: { tabs: { name: string; title: string; icon:
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.muted,
         tabBarLabelStyle: { fontFamily: fonts.bold, fontSize: 11 },
-        tabBarStyle: { borderTopColor: colors.border, height: 64, paddingTop: 6 },
+        tabBarStyle: {
+          backgroundColor: colors.card,
+          borderTopColor: colors.border,
+          height: 64 + insets.bottom,
+          paddingTop: 6,
+          paddingBottom: insets.bottom,
+        },
       }}
     >
       {tabs.map((tab) => (
