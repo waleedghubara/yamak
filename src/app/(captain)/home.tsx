@@ -705,7 +705,7 @@ function CaptainDashboard() {
       {/* الخيارات */}
       <BottomModal visible={menuOpen} onClose={() => setMenuOpen(false)} title={t('captain.options')}>
         <Row gap={space.sm}>
-          <CaptainTile icon="history" label={t('more.myRides')} onPress={() => go('/rides')} />
+          <CaptainTile icon="history" label={t('more.myRides')} onPress={() => go('/captain/rides')} />
           <CaptainTile icon="account" label={t('account.title')} onPress={() => go('/(captain)/account')} />
           <CaptainTile icon="wallet-outline" label={t('captain.balance')} onPress={() => go('/(captain)/earnings')} />
         </Row>

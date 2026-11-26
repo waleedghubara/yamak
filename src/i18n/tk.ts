@@ -589,6 +589,7 @@ const tk: Strings = {
     deleteAccount: 'Hesabı sil',
     deleteTitle: 'Hesap kalıcı olarak silinsin mi?',
     deleteMessage: 'Adınız, numaranız, fotoğrafınız, kayıtlı yerleriniz ve belgeleriniz silinir ve geri alınamaz. Yolculuk ve hesap kayıtları muhasebe ve yasal amaçlarla adınız olmadan saklanır.',
+    deleteMessageCaptain: 'Dikkat: bu hesap kaptan hesabınızla aynıdır (aynı numara). Silmek kaptan hesabınızı da kaldırır, çalışmaya kapatılır ve geri alınamaz. Adınız, numaranız, fotoğrafınız, yerleriniz ve belgeleriniz silinir. Yolculuk ve mali hesap kayıtları muhasebe ve yasal amaçlarla adınız olmadan saklanır.',
     deleteConfirm: 'Hesabımı sil',
     deleted: "Hesabınız silindi. Yamak'ı kullandığınız için teşekkürler.",
     version: 'Sürüm {{v}}',
